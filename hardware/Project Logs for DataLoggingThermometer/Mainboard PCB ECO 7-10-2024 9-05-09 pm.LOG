@@ -1,0 +1,138 @@
+Added Component: Designator=R_LMT1_LMT011(RESISTOR_0805_2012M-50N)
+Add component. Clean all parameters for all variants
+Add component (AddParameter): Name = "MF Part No."; Value = ""; VariantName = "[No Variations]"
+Add component (AddParameter): Name = "Package"; Value = ""; VariantName = "[No Variations]"
+Add component (AddParameter): Name = "Power"; Value = ""; VariantName = "[No Variations]"
+Add component (AddParameter): Name = "Rated Voltage"; Value = ""; VariantName = "[No Variations]"
+Add component (AddParameter): Name = "Supplier 1"; Value = ""; VariantName = "[No Variations]"
+Add component (AddParameter): Name = "Supplier 1 Part No."; Value = ""; VariantName = "[No Variations]"
+Add component (AddParameter): Name = "Supplier 2"; Value = ""; VariantName = "[No Variations]"
+Add component (AddParameter): Name = "Supplier 2 Part No."; Value = ""; VariantName = "[No Variations]"
+Add component (AddParameter): Name = "Temperature Coefficient"; Value = ""; VariantName = "[No Variations]"
+Add component (AddParameter): Name = "Temp Range"; Value = ""; VariantName = "[No Variations]"
+Add component (AddParameter): Name = "Tolerance"; Value = "?%"; VariantName = "[No Variations]"
+Add component (AddParameter): Name = "Value"; Value = ""; VariantName = "[No Variations]"
+Added Component: Designator=R_LMT1_LMT012(RESISTOR_0805_2012M-50N)
+Add component. Clean all parameters for all variants
+Add component (AddParameter): Name = "MF Part No."; Value = ""; VariantName = "[No Variations]"
+Add component (AddParameter): Name = "Package"; Value = ""; VariantName = "[No Variations]"
+Add component (AddParameter): Name = "Power"; Value = ""; VariantName = "[No Variations]"
+Add component (AddParameter): Name = "Rated Voltage"; Value = ""; VariantName = "[No Variations]"
+Add component (AddParameter): Name = "Supplier 1"; Value = ""; VariantName = "[No Variations]"
+Add component (AddParameter): Name = "Supplier 1 Part No."; Value = ""; VariantName = "[No Variations]"
+Add component (AddParameter): Name = "Supplier 2"; Value = ""; VariantName = "[No Variations]"
+Add component (AddParameter): Name = "Supplier 2 Part No."; Value = ""; VariantName = "[No Variations]"
+Add component (AddParameter): Name = "Temperature Coefficient"; Value = ""; VariantName = "[No Variations]"
+Add component (AddParameter): Name = "Temp Range"; Value = ""; VariantName = "[No Variations]"
+Add component (AddParameter): Name = "Tolerance"; Value = "?%"; VariantName = "[No Variations]"
+Add component (AddParameter): Name = "Value"; Value = ""; VariantName = "[No Variations]"
+Added Component: Designator=R_LMT1_LMT013(RESISTOR_0805_2012M-50N)
+Add component. Clean all parameters for all variants
+Add component (AddParameter): Name = "MF Part No."; Value = ""; VariantName = "[No Variations]"
+Add component (AddParameter): Name = "Package"; Value = ""; VariantName = "[No Variations]"
+Add component (AddParameter): Name = "Power"; Value = ""; VariantName = "[No Variations]"
+Add component (AddParameter): Name = "Rated Voltage"; Value = ""; VariantName = "[No Variations]"
+Add component (AddParameter): Name = "Supplier 1"; Value = ""; VariantName = "[No Variations]"
+Add component (AddParameter): Name = "Supplier 1 Part No."; Value = ""; VariantName = "[No Variations]"
+Add component (AddParameter): Name = "Supplier 2"; Value = ""; VariantName = "[No Variations]"
+Add component (AddParameter): Name = "Supplier 2 Part No."; Value = ""; VariantName = "[No Variations]"
+Add component (AddParameter): Name = "Temperature Coefficient"; Value = ""; VariantName = "[No Variations]"
+Add component (AddParameter): Name = "Temp Range"; Value = ""; VariantName = "[No Variations]"
+Add component (AddParameter): Name = "Tolerance"; Value = "?%"; VariantName = "[No Variations]"
+Add component (AddParameter): Name = "Value"; Value = ""; VariantName = "[No Variations]"
+Added Component: Designator=R_LMT1_LMT014(RESISTOR_0805_2012M-50N)
+Add component. Clean all parameters for all variants
+Add component (AddParameter): Name = "MF Part No."; Value = ""; VariantName = "[No Variations]"
+Add component (AddParameter): Name = "Package"; Value = ""; VariantName = "[No Variations]"
+Add component (AddParameter): Name = "Power"; Value = ""; VariantName = "[No Variations]"
+Add component (AddParameter): Name = "Rated Voltage"; Value = ""; VariantName = "[No Variations]"
+Add component (AddParameter): Name = "Supplier 1"; Value = ""; VariantName = "[No Variations]"
+Add component (AddParameter): Name = "Supplier 1 Part No."; Value = ""; VariantName = "[No Variations]"
+Add component (AddParameter): Name = "Supplier 2"; Value = ""; VariantName = "[No Variations]"
+Add component (AddParameter): Name = "Supplier 2 Part No."; Value = ""; VariantName = "[No Variations]"
+Add component (AddParameter): Name = "Temperature Coefficient"; Value = ""; VariantName = "[No Variations]"
+Add component (AddParameter): Name = "Temp Range"; Value = ""; VariantName = "[No Variations]"
+Add component (AddParameter): Name = "Tolerance"; Value = "?%"; VariantName = "[No Variations]"
+Add component (AddParameter): Name = "Value"; Value = ""; VariantName = "[No Variations]"
+Added Component: Designator=R_LMT1_LMT015(RESISTOR_0805_2012M-50N)
+Add component. Clean all parameters for all variants
+Add component (AddParameter): Name = "MF Part No."; Value = ""; VariantName = "[No Variations]"
+Add component (AddParameter): Name = "Package"; Value = ""; VariantName = "[No Variations]"
+Add component (AddParameter): Name = "Power"; Value = ""; VariantName = "[No Variations]"
+Add component (AddParameter): Name = "Rated Voltage"; Value = ""; VariantName = "[No Variations]"
+Add component (AddParameter): Name = "Supplier 1"; Value = ""; VariantName = "[No Variations]"
+Add component (AddParameter): Name = "Supplier 1 Part No."; Value = ""; VariantName = "[No Variations]"
+Add component (AddParameter): Name = "Supplier 2"; Value = ""; VariantName = "[No Variations]"
+Add component (AddParameter): Name = "Supplier 2 Part No."; Value = ""; VariantName = "[No Variations]"
+Add component (AddParameter): Name = "Temperature Coefficient"; Value = ""; VariantName = "[No Variations]"
+Add component (AddParameter): Name = "Temp Range"; Value = ""; VariantName = "[No Variations]"
+Add component (AddParameter): Name = "Tolerance"; Value = "?%"; VariantName = "[No Variations]"
+Add component (AddParameter): Name = "Value"; Value = ""; VariantName = "[No Variations]"
+Added Component: Designator=R_LMT1_LMT016(RESISTOR_0805_2012M-50N)
+Add component. Clean all parameters for all variants
+Add component (AddParameter): Name = "MF Part No."; Value = ""; VariantName = "[No Variations]"
+Add component (AddParameter): Name = "Package"; Value = ""; VariantName = "[No Variations]"
+Add component (AddParameter): Name = "Power"; Value = ""; VariantName = "[No Variations]"
+Add component (AddParameter): Name = "Rated Voltage"; Value = ""; VariantName = "[No Variations]"
+Add component (AddParameter): Name = "Supplier 1"; Value = ""; VariantName = "[No Variations]"
+Add component (AddParameter): Name = "Supplier 1 Part No."; Value = ""; VariantName = "[No Variations]"
+Add component (AddParameter): Name = "Supplier 2"; Value = ""; VariantName = "[No Variations]"
+Add component (AddParameter): Name = "Supplier 2 Part No."; Value = ""; VariantName = "[No Variations]"
+Add component (AddParameter): Name = "Temperature Coefficient"; Value = ""; VariantName = "[No Variations]"
+Add component (AddParameter): Name = "Temp Range"; Value = ""; VariantName = "[No Variations]"
+Add component (AddParameter): Name = "Tolerance"; Value = "?%"; VariantName = "[No Variations]"
+Add component (AddParameter): Name = "Value"; Value = ""; VariantName = "[No Variations]"
+Added Component: Designator=R_LMT1_LMT017(RESISTOR_0805_2012M-50N)
+Add component. Clean all parameters for all variants
+Add component (AddParameter): Name = "MF Part No."; Value = ""; VariantName = "[No Variations]"
+Add component (AddParameter): Name = "Package"; Value = ""; VariantName = "[No Variations]"
+Add component (AddParameter): Name = "Power"; Value = ""; VariantName = "[No Variations]"
+Add component (AddParameter): Name = "Rated Voltage"; Value = ""; VariantName = "[No Variations]"
+Add component (AddParameter): Name = "Supplier 1"; Value = ""; VariantName = "[No Variations]"
+Add component (AddParameter): Name = "Supplier 1 Part No."; Value = ""; VariantName = "[No Variations]"
+Add component (AddParameter): Name = "Supplier 2"; Value = ""; VariantName = "[No Variations]"
+Add component (AddParameter): Name = "Supplier 2 Part No."; Value = ""; VariantName = "[No Variations]"
+Add component (AddParameter): Name = "Temperature Coefficient"; Value = ""; VariantName = "[No Variations]"
+Add component (AddParameter): Name = "Temp Range"; Value = ""; VariantName = "[No Variations]"
+Add component (AddParameter): Name = "Tolerance"; Value = "?%"; VariantName = "[No Variations]"
+Add component (AddParameter): Name = "Value"; Value = ""; VariantName = "[No Variations]"
+Added Component: Designator=R_LMT1_LMT018(RESISTOR_0805_2012M-50N)
+Add component. Clean all parameters for all variants
+Add component (AddParameter): Name = "MF Part No."; Value = ""; VariantName = "[No Variations]"
+Add component (AddParameter): Name = "Package"; Value = ""; VariantName = "[No Variations]"
+Add component (AddParameter): Name = "Power"; Value = ""; VariantName = "[No Variations]"
+Add component (AddParameter): Name = "Rated Voltage"; Value = ""; VariantName = "[No Variations]"
+Add component (AddParameter): Name = "Supplier 1"; Value = ""; VariantName = "[No Variations]"
+Add component (AddParameter): Name = "Supplier 1 Part No."; Value = ""; VariantName = "[No Variations]"
+Add component (AddParameter): Name = "Supplier 2"; Value = ""; VariantName = "[No Variations]"
+Add component (AddParameter): Name = "Supplier 2 Part No."; Value = ""; VariantName = "[No Variations]"
+Add component (AddParameter): Name = "Temperature Coefficient"; Value = ""; VariantName = "[No Variations]"
+Add component (AddParameter): Name = "Temp Range"; Value = ""; VariantName = "[No Variations]"
+Add component (AddParameter): Name = "Tolerance"; Value = "?%"; VariantName = "[No Variations]"
+Add component (AddParameter): Name = "Value"; Value = ""; VariantName = "[No Variations]"
+Added Pin To Net: NetName=VN Pin=R_LMT1_LMT011-1
+Added Pin To Net: NetName=VN Pin=R_LMT1_LMT012-1
+Added Pin To Net: NetName=VN Pin=R_LMT1_LMT013-1
+Added Pin To Net: NetName=VN Pin=R_LMT1_LMT014-1
+Added Pin To Net: NetName=VN Pin=R_LMT1_LMT015-1
+Added Pin To Net: NetName=VN Pin=R_LMT1_LMT016-1
+Added Pin To Net: NetName=VN Pin=R_LMT1_LMT017-1
+Added Pin To Net: NetName=VN Pin=R_LMT1_LMT018-1
+Added Net: Name=VN
+Added Pin To Net: NetName=VP Pin=R_LMT1_LMT011-2
+Added Pin To Net: NetName=VP Pin=R_LMT1_LMT012-2
+Added Pin To Net: NetName=VP Pin=R_LMT1_LMT013-2
+Added Pin To Net: NetName=VP Pin=R_LMT1_LMT014-2
+Added Pin To Net: NetName=VP Pin=R_LMT1_LMT015-2
+Added Pin To Net: NetName=VP Pin=R_LMT1_LMT016-2
+Added Pin To Net: NetName=VP Pin=R_LMT1_LMT017-2
+Added Pin To Net: NetName=VP Pin=R_LMT1_LMT018-2
+Added Net: Name=VP
+Added Member To Class: ClassName=LMT011 Member=Component R_LMT1_LMT011 (R_LMT1) 
+Added Member To Class: ClassName=LMT012 Member=Component R_LMT1_LMT012 (R_LMT1) 
+Added Member To Class: ClassName=LMT013 Member=Component R_LMT1_LMT013 (R_LMT1) 
+Added Member To Class: ClassName=LMT014 Member=Component R_LMT1_LMT014 (R_LMT1) 
+Added Member To Class: ClassName=LMT015 Member=Component R_LMT1_LMT015 (R_LMT1) 
+Added Member To Class: ClassName=LMT016 Member=Component R_LMT1_LMT016 (R_LMT1) 
+Added Member To Class: ClassName=LMT017 Member=Component R_LMT1_LMT017 (R_LMT1) 
+Added Member To Class: ClassName=LMT018 Member=Component R_LMT1_LMT018 (R_LMT1) 

@@ -1,0 +1,76 @@
+Added Component: Designator=U1(RASPBERRY_PI_PICO)
+Add component. Clean all parameters for all variants
+Add component (AddParameter): Name = "Check_prices"; Value = "https://www.snapeda.com/parts/RASPBERRY%20PI%20PICO/Raspberry+Pi/view-part/?ref=eda"; VariantName = "[No Variations]"
+Add component (AddParameter): Name = "MF"; Value = "Raspberry Pi"; VariantName = "[No Variations]"
+Add component (AddParameter): Name = "MP"; Value = "RASPBERRY PI PICO"; VariantName = "[No Variations]"
+Add component (AddParameter): Name = "Package"; Value = "None"; VariantName = "[No Variations]"
+Add component (AddParameter): Name = "SnapEDA_Link"; Value = "https://www.snapeda.com/parts/RASPBERRY%20PI%20PICO/Raspberry+Pi/view-part/?ref=snap"; VariantName = "[No Variations]"
+Add component (AddParameter): Name = "Value"; Value = ""; VariantName = "[No Variations]"
+Added Pin To Net: NetName=3V3 Pin=U1-3V3
+Added Pin To Net: NetName=GND Pin=U1-AGND
+Added Pin To Net: NetName=GND Pin=U1-GND2
+Added Pin To Net: NetName=GND Pin=U1-GND3
+Added Pin To Net: NetName=GND Pin=U1-GND4
+Added Pin To Net: NetName=GND Pin=U1-GND5
+Added Pin To Net: NetName=GND Pin=U1-GND6
+Added Pin To Net: NetName=GND Pin=U1-GND7
+Added Pin To Net: NetName=GND Pin=U1-GND
+Added Net: Name=NetR_LMT1_LMT011_1
+Added Net: Name=NetR_LMT1_LMT011_2
+Added Pin To Net: NetName=Vbus Pin=U1-VBUS
+Added Net: Name=Vbus
+Added Pin To Net: NetName=VN1 Pin=U1-GP1
+Added Net: Name=VN1
+Added Pin To Net: NetName=VN2 Pin=U1-GP3
+Added Net: Name=VN2
+Added Pin To Net: NetName=VN3 Pin=U1-GP5
+Added Net: Name=VN3
+Added Pin To Net: NetName=VN4 Pin=U1-GP7
+Added Net: Name=VN4
+Added Pin To Net: NetName=VN5 Pin=U1-GP9
+Added Net: Name=VN5
+Added Pin To Net: NetName=VN6 Pin=U1-GP11
+Added Net: Name=VN6
+Added Pin To Net: NetName=VN7 Pin=U1-GP13
+Added Net: Name=VN7
+Added Pin To Net: NetName=VN8 Pin=U1-GP15
+Added Net: Name=VN8
+Added Pin To Net: NetName=VP1 Pin=U1-GP0
+Added Net: Name=VP1
+Added Pin To Net: NetName=VP2 Pin=U1-GP2
+Added Net: Name=VP2
+Added Pin To Net: NetName=VP3 Pin=U1-GP4
+Added Net: Name=VP3
+Added Pin To Net: NetName=VP4 Pin=U1-GP6
+Added Net: Name=VP4
+Added Pin To Net: NetName=VP5 Pin=U1-GP8
+Added Net: Name=VP5
+Added Pin To Net: NetName=VP6 Pin=U1-GP10
+Added Net: Name=VP6
+Added Pin To Net: NetName=VP7 Pin=U1-GP12
+Added Net: Name=VP7
+Added Pin To Net: NetName=VP8 Pin=U1-GP14
+Added Net: Name=VP8
+Added Pin To Net: NetName=Vsys Pin=U1-VSYS
+Added Net: Name=Vsys
+Added Class: Name=LMT011
+Added Class: Name=LMT012
+Added Class: Name=LMT013
+Added Class: Name=LMT014
+Added Class: Name=LMT015
+Added Class: Name=LMT016
+Added Class: Name=LMT017
+Added Class: Name=LMT018
+Added Class: Name=Mainboard
+Added Class: Name=VN[1..8]
+Added Class: Name=VP[1..8]
+Added Class: Name=LMT01 Interface
+Added Room: Name=LMT011
+Added Room: Name=LMT012
+Added Room: Name=LMT013
+Added Room: Name=LMT014
+Added Room: Name=LMT015
+Added Room: Name=LMT016
+Added Room: Name=LMT017
+Added Room: Name=LMT018
+Added Room: Name=Mainboard
