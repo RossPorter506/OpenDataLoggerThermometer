@@ -6,3 +6,11 @@ hardware/Libraries/__Previews/
 hardware/__Previews/
 
 hardware/Libraries/RASPBERRY_PI_PICO/History/
+
+*.drc
+
+*.html
+
+hardware/Project Logs for DataLoggingThermometer/
+
+hardware/Mainboard.PcbDoc.htm
