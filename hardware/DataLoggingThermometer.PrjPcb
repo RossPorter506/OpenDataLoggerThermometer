@@ -154,7 +154,7 @@ ClassGenCCAutoRoomEnabled=1
 ClassGenNCAutoScope=None
 DItemRevisionGUID=
 GenerateClassCluster=0
-DocumentUniqueId=
+DocumentUniqueId=QADXCREO
 
 [Document8]
 DocumentPath=Libraries\APSS Prototype Parts.SchLib
@@ -292,8 +292,29 @@ DItemRevisionGUID=
 GenerateClassCluster=0
 DocumentUniqueId=SHKKUBBH
 
+[Document16]
+DocumentPath=Libraries\LMT01LPG.IntLib
+AnnotationEnabled=1
+AnnotateStartValue=1
+AnnotationIndexControlEnabled=0
+AnnotateSuffix=
+AnnotateScope=All
+AnnotateOrder=-1
+DoLibraryUpdate=1
+DoDatabaseUpdate=1
+ClassGenCCAutoEnabled=1
+ClassGenCCAutoRoomEnabled=1
+ClassGenNCAutoScope=None
+DItemRevisionGUID=
+GenerateClassCluster=0
+DocumentUniqueId=
+
 [GeneratedDocument1]
 DocumentPath=Project Outputs for DataLoggingThermometer\Design Rule Check - Mainboard.html
+DItemRevisionGUID=
+
+[GeneratedDocument2]
+DocumentPath=Project Outputs for DataLoggingThermometer\BOM\No Variations.xls
 DItemRevisionGUID=
 
 [Parameter1]
