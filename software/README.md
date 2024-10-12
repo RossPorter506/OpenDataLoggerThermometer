@@ -79,3 +79,24 @@ main() {
 ```
 
 PIO program: See if https://github.com/GitJer/Some_RPI-Pico_stuff/tree/main/count_pulses_with_pause is suitable
+
+My first attempt:
+```
+.autopull
+.autopush
+
+.wrap_target
+MOV Y ! NULL // Set Y to 0xFFFFFFFF. We count downwards since we can only decrement
+
+loop:
+JMP !OSRE respond // CPU sends us dummy data to FIFO when it wants the count. Check if we've received anything (from autopull).
+WAIT 1 PIN 0 // Wait for high on the 0th pin as configured in PINCTRL_IN_BASE
+WAIT 0 PIN 0 // Wait for low  on the 0th pin as configured in PINCTRL_IN_BASE
+JMP Y-- loop // Decrement Y and loop. We assume Y never reaches zero, i.e. the CPU will send up something before then.
+
+respond:
+OUT NULL 32 // Discard output shift register data we just autopulled
+MOV ISR ~Y // Push pulse count to FIFO. Negate to undo the inversion from counting downwards
+
+.wrap
+```
