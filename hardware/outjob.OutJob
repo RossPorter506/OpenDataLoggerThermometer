@@ -21,7 +21,7 @@ TargetOutputMedium=Bill of Materials
 VariantName=[No Variations]
 VariantScope=0
 CurrentConfigurationName=
-TargetPrinter=MFC-J6920DW
+TargetPrinter=Microsoft Print to PDF
 PrinterOptions=Record=PrinterOptions|Copies=1|Duplex=1|TrueTypeOptions=3|Collate=1|PrintJobKind=1|PrintWhat=1
 OutputMedium1=Print Job
 OutputMedium1_Type=Printer
@@ -99,6 +99,32 @@ OutputDefault4=0
 PageOptions4=Record=PageOptions|CenterHorizontal=True|CenterVertical=True|PrintScale=1.00|XCorrection=1.00|YCorrection=1.00|PrintKind=1|BorderSize=5000000|LeftOffset=0|BottomOffset=0|Orientation=2|PaperLength=1000|PaperWidth=1000|Scale=100|PaperSource=7|PrintQuality=-3|MediaType=1|DitherType=10|PrintScaleMode=1|PaperKind=A4|PaperIndex=9
 Configuration4_Name1=OutputConfigurationParameter1
 Configuration4_Item1=Record=SchPrintView|ShowNoERC=True|ShowParamSet=True|ShowProbe=True|ShowBlanket=True|NoERCSymbolsToShow="Thin Cross","Thick Cross","Small Cross",Checkbox,Triangle|ShowNote=True|ShowNoteCollapsed=True|ShowOpenEnds=True|ExpandDesignator=True|ExpandNetLabel=False|ExpandPort=False|ExpandSheetNum=False|ExpandDocNum=False|PrintArea=0|PrintAreaRect.X1=0|PrintAreaRect.Y1=0|PrintAreaRect.X2=0|PrintAreaRect.Y2=0|DocumentPath=[Project Physical Documents]
+OutputType5=BOM_PartType
+OutputName5=Copy of Bill of Materials
+OutputCategory5=Report
+OutputDocumentPath5=
+OutputVariantName5=Minimal
+OutputEnabled5=1
+OutputEnabled5_OutputMedium1=0
+OutputEnabled5_OutputMedium2=0
+OutputEnabled5_OutputMedium3=0
+OutputEnabled5_OutputMedium4=2
+OutputDefault5=0
+PageOptions5=Record=PageOptions|CenterHorizontal=True|CenterVertical=True|PrintScale=1.00|XCorrection=1.00|YCorrection=1.00|PrintKind=1|BorderSize=5000000|LeftOffset=0|BottomOffset=0|Orientation=2|PaperLength=1000|PaperWidth=1000|Scale=100|PaperSource=7|PrintQuality=-3|MediaType=1|DitherType=10|PrintScaleMode=1|PaperKind=A4|PaperIndex=9
+Configuration5_Name1=ColumnNameFormat
+Configuration5_Item1=CaptionAsName
+Configuration5_Name2=Filter
+Configuration5_Item2=545046300E5446696C74657257726170706572000D46696C7465722E416374697665090F46696C7465722E43726974657269610A04000000000000000000
+Configuration5_Name3=General
+Configuration5_Item3=OpenExported=False|AddToProject=False|ForceFit=False|NotFitted=False|Database=False|DatabasePriority=False|IncludePCBData=False|IncludeVaultData=False|IncludeAlternatives=False|ShowExportOptions=True|TemplateFilename=|BatchMode=5|FormWidth=2183|FormHeight=656|SupplierProdQty=1|SupplierAutoQty=False|SupplierUseCachedPricing=False|SupplierCurrency=<none>
+Configuration5_Name4=GroupOrder
+Configuration5_Item4=Comment=True|MF Part No.=True
+Configuration5_Name5=SortOrder
+Configuration5_Item5=Designator=Up
+Configuration5_Name6=VisibleOrder
+Configuration5_Item6=Designator=189|Quantity=100|Comment=175|Value=73|Description=702|MF Part No.=198|Supplier 1=90|Supplier 1 Part No.=274
+Configuration5_Name7=VisibleOrder_Flat
+Configuration5_Item7=Designator=120|Comment=120|Description=120|Quantity=75|Footprint=120|LibRef=120
 
 [PublishSettings]
 OutputFilePath2=C:\Users\rpor545\OneDrive - The University of Auckland\Documents\Kessler PCB\PSat Generic PSU\PSat Generic PSU\Project Outputs for PSat Generic PSU\
@@ -141,7 +167,7 @@ OutputFileNameMulti3=
 UseOutputNameForMulti3=1
 OutputFileNameSpecial3=
 OpenOutput3=1
-OutputFilePath4=M:\GitRepos\OpenDataLoggingThermometer\hardware\Project Outputs for DataLoggingThermometer\
+OutputFilePath4=Y:\GitRepos\OpenDataLoggingThermometer\hardware\Project Outputs for DataLoggingThermometer\
 ReleaseManaged4=1
 OutputBasePath4=Project Outputs for DataLoggingThermometer
 OutputPathMedia4=
@@ -168,7 +194,7 @@ OpenGerberOutput3=0
 OpenNCDrillOutput3=0
 OpenIPCOutput3=0
 EnableReload3=0
-RelativeOutputPath4=M:\GitRepos\OpenDataLoggingThermometer\hardware\Project Outputs for DataLoggingThermometer\
+RelativeOutputPath4=Y:\GitRepos\OpenDataLoggingThermometer\hardware\Project Outputs for DataLoggingThermometer\
 OpenOutputs4=1
 AddToProject4=1
 TimestampFolder4=0

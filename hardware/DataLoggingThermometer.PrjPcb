@@ -378,6 +378,18 @@ Variation26=Designator=C5B|UniqueId=\KIDPSNKD\IUMPTIVU|Kind=1|AlternatePart=
 Variation27=Designator=C?|UniqueId=\KVXMCFWL|Kind=1|AlternatePart= 
 ParamVariationCount=0
 
+[GeneratedDocument1]
+DocumentPath=Project Outputs for DataLoggingThermometer\Design Rule Check - Mainboard.html
+DItemRevisionGUID=
+
+[GeneratedDocument2]
+DocumentPath=Project Outputs for DataLoggingThermometer\BOM\Minimal.xlsx
+DItemRevisionGUID=
+
+[GeneratedDocument3]
+DocumentPath=Project Outputs for DataLoggingThermometer\BOM\No Variations.xlsx
+DItemRevisionGUID=
+
 [Parameter1]
 Name=version
 Value=1.0.0

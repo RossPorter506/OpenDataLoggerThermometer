@@ -77,3 +77,5 @@ main() {
     }
 }
 ```
+
+PIO program: See if https://github.com/GitJer/Some_RPI-Pico_stuff/tree/main/count_pulses_with_pause is suitable
