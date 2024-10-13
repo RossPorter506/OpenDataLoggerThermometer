@@ -333,7 +333,7 @@ AnnotateStartValue=1
 AnnotationIndexControlEnabled=0
 AnnotateSuffix=
 AnnotateScope=All
-AnnotateOrder=-1
+AnnotateOrder=2
 DoLibraryUpdate=1
 DoDatabaseUpdate=1
 ClassGenCCAutoEnabled=1
@@ -348,7 +348,7 @@ UniqueID=E5381BB7-6159-4B22-823A-B4FC35B5C128
 Description=Minimal
 AllowFabrication=0
 ParameterCount=0
-VariationCount=27
+VariationCount=29
 Variation1=Designator=R16B|UniqueId=\KIDPSNKD\HMGRFEQV|Kind=1|AlternatePart= 
 Variation2=Designator=R15B|UniqueId=\KIDPSNKD\AYTFXQNW|Kind=1|AlternatePart= 
 Variation3=Designator=R13B|UniqueId=\KIDPSNKD\WYROVVYI|Kind=1|AlternatePart= 
@@ -376,6 +376,8 @@ Variation24=Designator=D2|UniqueId=\KPSQTKDW|Kind=1|AlternatePart=
 Variation25=Designator=C5A|UniqueId=\MGTFHJHC\IUMPTIVU|Kind=1|AlternatePart= 
 Variation26=Designator=C5B|UniqueId=\KIDPSNKD\IUMPTIVU|Kind=1|AlternatePart= 
 Variation27=Designator=C?|UniqueId=\KVXMCFWL|Kind=1|AlternatePart= 
+Variation28=Designator=C8|UniqueId=\TNEXWPNK|Kind=1|AlternatePart= 
+Variation29=Designator=C7|UniqueId=\IZOJUAHS|Kind=1|AlternatePart= 
 ParamVariationCount=0
 
 [GeneratedDocument1]
