@@ -8,10 +8,11 @@ Always:
 Update the screen if buttons are pressed, or if new sensor data is read
 
 On startup:
-Allow the user to configure where values will be sent (Display, SD card, USB UART, or a combination thereof)
-Which of the 8 sensors to record/display (bonus points: Determine how many sensors are connected automagically)
-Set sampling/recording rates (e.g. 1x, 2x, 4x, 8x per second per channel)
-Gracefully interface with an SD card (card detected?, write locked?, formatted?, free space on card? etc.)
+1) Allow the user to configure where values will be sent (Display, SD card, USB UART, or a combination thereof)
+1b) If UART selected: Configure baud, parity, stop bits
+1c) If SD selected: Gracefully interface with an SD card (card detected?, write locked?, formatted?, free space on card? etc.)
+2) Which of the 8 sensors to record/display (bonus points: Determine how many sensors are connected automatically and set missing disconnected channels to 'no')
+3) Set sampling/recording rates (e.g. 1-9 samples per second per channel)
 
 During logging:
 Achieve at least 8x samples per second per sensor (using the PIO blocks)
