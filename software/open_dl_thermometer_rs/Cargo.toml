@@ -7,3 +7,24 @@ edition = "2021"
 cortex-m-rt = "0.7.3"
 panic-halt = "0.2.0"
 rp-pico = "0.9.0"
+
+# Macro function naming using identifier
+paste = "1.0"
+
+# FromPrimitive
+num-traits = {version = "0.2", default-features = false}
+num-derive = "0.4"
+
+# Interrupts
+atomic_enum = {version = "0.3", default-features = false}
+critical-section = "1.2"
+
+# PinGroup 
+frunk = {version = "*", default-features = false}
+
+# Buffers
+arrayvec = {version = "0.7", default-features = false}
+
+# USB Serial printing
+usb-device = "0.3"
+usbd-serial = "0.2"
