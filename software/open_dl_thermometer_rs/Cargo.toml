@@ -19,9 +19,6 @@ num-derive = "0.4"
 atomic_enum = {version = "0.3", default-features = false}
 critical-section = "1.2"
 
-# PinGroup 
-frunk = {version = "*", default-features = false}
-
 # Buffers
 arrayvec = {version = "0.7", default-features = false}
 
