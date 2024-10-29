@@ -41,6 +41,16 @@ use usb_device::{class_prelude::*, prelude::*};
 use usbd_serial::SerialPort;
 // Used to demonstrate writing formatted strings
 
+/* TODO:
+PIO setup
+I2C and display driver
+SPI and SD driver
+Timer for sample rate calcs
+Maybe wrap everything up into a nice struct
+Stretch goal: Synchronise time with Pico W and NTP
+Stretch goal: Autodetect connected sensor channels and set accordingly
+*/
+
 /*
 struct SystemPeripherals {
     temp_sensors: TempSensors,
@@ -51,8 +61,20 @@ struct SystemPeripherals {
 impl SystemPeripherals {
 }*/
 
+// Heap so we can use Vec, etc.. Try to use ArrayVec where possible though.
+use embedded_alloc::LlffHeap as Heap;
+#[global_allocator]
+static ALLOCATOR: Heap = Heap::empty();
+fn configure_heap() {
+    use core::mem::MaybeUninit;
+    const HEAP_SIZE: usize = 1024;
+    static mut HEAP: [MaybeUninit<u8>; HEAP_SIZE] = [MaybeUninit::uninit(); HEAP_SIZE];
+    unsafe { ALLOCATOR.init(core::ptr::addr_of_mut!(HEAP) as usize, HEAP_SIZE) }
+}
+
 #[entry]
 fn main() -> ! {
+    configure_heap();
     // Take ownership of peripherals and pins
     let mut peripherals = pac::Peripherals::take().unwrap();
     let sio = Sio::new(peripherals.SIO);
