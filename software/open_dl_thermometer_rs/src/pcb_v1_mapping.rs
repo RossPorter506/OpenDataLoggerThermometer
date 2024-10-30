@@ -77,6 +77,7 @@ impl TempPowerPins {
         // Do we need a delay here?
         self.invert();
     }
+    #[allow(clippy::too_many_arguments)]
     pub fn new(vp1: VP1Off, vp2: VP2Off, vp3: VP3Off, vp4: VP4Off, vp5: VP5Off, vp6: VP6Off, vp7: VP7Off, vp8: VP8Off) -> Self {
         let pins_in: arrayvec::ArrayVec<gpio::Pin<gpio::DynPinId, gpio::DynFunction, gpio::PullNone>, NUM_SENSOR_CHANNELS> = 
         arrayvec::ArrayVec::<_, NUM_SENSOR_CHANNELS>::from_iter([

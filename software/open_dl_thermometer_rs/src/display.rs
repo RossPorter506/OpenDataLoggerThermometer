@@ -135,7 +135,7 @@ fn find_dynamic_element_placeholders(screen: &Screen) -> ArrayVec<DynamicElement
 
 fn right_align(arr: Vec<u8>, total_size: usize) -> Vec<u8> {
     let pad_amount = total_size - arr.len();
-    let padding = core::iter::repeat_n(b' ', pad_amount).into_iter();
+    let padding = core::iter::repeat_n(b' ', pad_amount);
     padding.chain(arr).collect()
 }
 
@@ -211,7 +211,7 @@ pub fn update_display(config: &Config, sensor_values: &[[u8; CHARS_PER_READING];
         DatalogErrorSDFull(sel) =>      (Some(sel as usize), SD_FULL_SCREEN),
         DatalogSDWriting(_) =>          (None,               SD_WRITING_SCREEN),
         DatalogSDSafeToRemove(sel) =>   (Some(sel as usize), SD_WRITE_COMPLETE_SCREEN),
-    }.clone();
+    };
 
     set_selected_elements(&mut display_buffer, selected_element_pos);
     

@@ -47,31 +47,31 @@ impl Default for SDConfig {
     fn default() -> Self {
         Self {
             enabled: false,
-            filetype: Filetype::CSV,
+            filetype: Filetype::Csv,
             filename: [0; FILENAME_MAX_LEN],
         }
     }
 }
 /// SD card file type info
 pub enum Filetype {
-    CSV, // comma separated
-    TSV, // tab separated
-    RAW, // null separated
+    Csv, // comma separated
+    Tsv, // tab separated
+    Raw, // null separated
 }
 impl Filetype {
     pub fn next(&self) -> Filetype {
         use Filetype::*;
         match self {
-            CSV => TSV,
-            TSV => RAW,
-            RAW => CSV,
+            Csv => Tsv,
+            Tsv => Raw,
+            Raw => Csv,
         }
     }
     pub fn as_str(&self) -> [u8;3] {
         match self {
-            Filetype::CSV => *b"CSV",
-            Filetype::TSV => *b"TSV",
-            Filetype::RAW => *b"RAW",
+            Filetype::Csv => *b"CSV",
+            Filetype::Tsv => *b"TSV",
+            Filetype::Raw => *b"RAW",
         }
     }
 }

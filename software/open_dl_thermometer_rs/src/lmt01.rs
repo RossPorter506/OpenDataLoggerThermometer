@@ -60,7 +60,7 @@ pub const CHARS_PER_READING: usize = 8;
 /// Output: `[u8;8]`, e.g. "-50.012C", "002.901C", "234.750C"
 pub fn temp_to_string(tempr: i32) -> [u8; CHARS_PER_READING] {
     let neg = tempr < 0;
-    let mut tempr = tempr.max(-99_999).min(999_999).abs() as u32;
+    let mut tempr = tempr.clamp(-99_999, 999_999).unsigned_abs();
     let mut out = [0u8; CHARS_PER_READING];
 
     for i in 0..CHARS_PER_READING - 1 {
@@ -68,7 +68,7 @@ pub fn temp_to_string(tempr: i32) -> [u8; CHARS_PER_READING] {
             continue;
         } // decimal place
         let digit = (tempr % 10) as u8;
-        tempr = tempr / 10;
+        tempr /= 10;
         out[CHARS_PER_READING - 2 - i] = digit + b'0';
     }
     out[CHARS_PER_READING - 5] = b'.';
@@ -107,7 +107,7 @@ struct LUTInterpolator {
 }
 impl LUTInterpolator {
     fn new(arr: [(i32, u16); LUT_SIZE]) -> LUTInterpolator {
-        let lut = arr.map(|x| LUTEntry::new(x.1, x.0)).try_into().unwrap();
+        let lut = arr.map(|x| LUTEntry::new(x.1, x.0));
         LUTInterpolator { lut }
     }
     fn interpolate(&self, test_count: u16) -> i32 {

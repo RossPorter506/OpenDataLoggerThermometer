@@ -257,18 +257,16 @@ fn service_event(config: &mut Config, update_reason: &UpdateReason) {
 /// Cycle through alphanumeric ASCII values
 /// a -> b, ... z -> 0, ... 9 -> a
 fn cycle_ascii_char(char: &mut u8) {
-    let orig = char.clone();
-    *char = match orig {
-        b'a'..=b'y' => orig + 1,
+    *char = match *char {
+        b'a'..=b'y' => *char + 1,
         b'z' => b'0',
-        b'0'..=b'8' => orig + 1,
+        b'0'..=b'8' => *char + 1,
         _ => b'a',
     };
 }
 /// Cycle between 1 - 8
 fn cycle_sample_rate(rate: &mut u8) {
-    let orig = rate.clone();
-    *rate = match orig {
+    *rate = match *rate {
         1 => 2,
         2 => 4,
         4 => 8,
