@@ -64,14 +64,14 @@ impl TempPowerPins {
             self.pins_in.push(pin.reconfigure());
         }
     }
-    /// Inverts the state of the LMT01 sensors
+    /// Inverts the state of the LMT01 sensors' power rails
     pub fn invert(&mut self) {
         match self.pins_in.len() {
             NUM_SENSOR_CHANNELS => self.turn_on(),
             _ => self.turn_off(),
         }
     }
-    /// Inverts the state of the LMT01 sensors, and then inverts it again
+    /// Inverts the state of the LMT01 sensors' power rails, and then inverts it again
     pub fn pulse(&mut self) {
         self.invert();
         // Do we need a delay here?

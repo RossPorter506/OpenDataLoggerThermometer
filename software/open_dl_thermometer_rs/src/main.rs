@@ -2,13 +2,13 @@
 #![no_main]
 #![feature(variant_count)]
 use arrayvec::ArrayVec;
-use core::cell::RefCell;
+use core::{cell::RefCell, sync::atomic::AtomicU8};
 use critical_section::Mutex;
 use panic_halt as _;
 
 use rp_pico::{
     entry,
-    hal::{gpio, Sio},
+    hal::{gpio, pwm::FreeRunning, timer::Alarm, Clock, Sio, fugit::ExtU32},
     pac::{self, interrupt},
 };
 
@@ -45,7 +45,6 @@ use usbd_serial::SerialPort;
 PIO setup
 I2C and display driver
 SPI and SD driver
-Timer for sample rate calcs
 Maybe wrap everything up into a nice struct
 Stretch goal: Synchronise time with Pico W and NTP
 Stretch goal: Autodetect connected sensor channels and set accordingly
@@ -98,6 +97,20 @@ fn main() -> ! {
     ).ok()
      .unwrap();
 
+    // PWM used as timer
+    let slices = rp_pico::hal::pwm::Slices::new(peripherals.PWM, &mut peripherals.RESETS);
+    let mut sample_rate_timer = slices.pwm0.into_mode::<FreeRunning>();
+    core::assert!(clocks.system_clock.freq().to_MHz() < 128); // Assume freq < 128MHz because prescaler is 8-bit
+    sample_rate_timer.default_config();
+    sample_rate_timer.set_div_int( (clocks.system_clock.freq().to_MHz() * 2) as u8 ); // 2us resolution => max ~130ms range
+    sample_rate_timer.set_top(62_500); // Want 125ms range
+    sample_rate_timer.enable_interrupt();
+
+    // System timer, alarm 0 used to schedule sensor ready alerts
+    let mut system_timer = rp_pico::hal::Timer::new(peripherals.TIMER, &mut peripherals.RESETS, &clocks);
+    let mut sensors_ready_timer = system_timer.alarm_0().unwrap();
+    sensors_ready_timer.enable_interrupt();
+
     /* Set up USB bus */
     let usb_bus = UsbBusAllocator::new(rp_pico::hal::usb::UsbBus::new(
         peripherals.USBCTRL_REGS,
@@ -132,7 +145,7 @@ fn main() -> ! {
     // Buffers
     let mut sensor_values = [[0u8; CHARS_PER_READING]; NUM_SENSOR_CHANNELS]; // Most recent sensor values, to be written to display, serial, or SD card
     let mut serial_buffer = ArrayVec::<u8, {CHARS_PER_READING*NUM_SENSOR_CHANNELS}>::new(); // We will write to serial as we receive, so buffer need only be big enough for one lot of readings. ASCII.
-    let mut spi_buffer = ArrayVec::<u8, {16*CHARS_PER_READING*NUM_SENSOR_CHANNELS} /* Arbitrary */>::new(); // We store values until we're some multiple of the SD card block size. ASCII.
+    let mut spi_buffer = ArrayVec::<u8, {CHARS_PER_READING*NUM_SENSOR_CHANNELS*16 /*Arbitrary size*/}>::new(); // We store values until we're some multiple of the SD card block size. ASCII.
 
     loop {
         // Check for button presses
@@ -145,21 +158,29 @@ fn main() -> ! {
         // Read sensor values
         if READY_TO_READ_SENSORS.load(Ordering::Relaxed) {
             sensor_values = temp_sensors.read_temperatures().map(lmt01::temp_to_string);
-            temp_sensors.power.pulse();
-            //set_timer(config.samples_per_sec);
+            let flattened_values = sensor_values.iter().flatten().copied(); // SD card and serial (right now...) don't care about char grouping, so flatten [[u8; _]; _] into [u8; _]
             if config.sd.enabled{
-                spi_buffer.extend(sensor_values.clone().into_iter().flatten());
+                spi_buffer.extend(flattened_values.clone());
                 if spi_buffer.is_full() { write_to_sd = true; }
             }
             
             if config.serial.enabled {
-                serial_buffer = sensor_values.clone().into_iter().flatten().collect();
+                serial_buffer = flattened_values.collect();
                 write_to_serial = true;
             }
 
             READY_TO_READ_SENSORS.store(false, Ordering::Relaxed);
+            sample_rate_timer.clear_interrupt(); // Clear the interrupt flag for the 125ms timer. Should be done in the PWM interrupt, but this is good enough 
             update_available = Some(UpdateReason::NewSensorValues);
-            todo!();
+        }
+
+        // Prepare sensors for next reading
+        if READY_TO_RESET_SENSORS.load(Ordering::Relaxed) {
+            temp_sensors.power.pulse();
+            const SENSOR_MAX_TIME_FOR_READING_MS: u32 = 104;
+            sensors_ready_timer.clear_interrupt(); // Clear the interrupt flag for the 105ms timer. Should be done in the TIMER0 interrupt, but this is good enough 
+            let _ = sensors_ready_timer.schedule((SENSOR_MAX_TIME_FOR_READING_MS+1).millis());
+            READY_TO_RESET_SENSORS.store(false, Ordering::Relaxed);
         }
 
         // Deal with SD card
@@ -196,6 +217,7 @@ fn main() -> ! {
             service_event(&mut config, &update_reason);
             state_machine::next_state(&mut config, &update_reason);
             display::update_display(&config, &sensor_values);
+            if config.status == Idle { sample_rate_timer.disable(); } else { sample_rate_timer.enable(); }
             update_available = None;
         }
     }
@@ -243,11 +265,13 @@ fn cycle_ascii_char(char: &mut u8) {
         _ => b'a',
     };
 }
-/// Cycle between 1 - 9
+/// Cycle between 1 - 8
 fn cycle_sample_rate(rate: &mut u8) {
     let orig = rate.clone();
     *rate = match orig {
-        1..=8 => orig + 1,
+        1 => 2,
+        2 => 4,
+        4 => 8,
         _ => 1,
     }
 }
@@ -255,9 +279,29 @@ fn cycle_sample_rate(rate: &mut u8) {
 /// Whether it's time to read the sensors for new values
 static READY_TO_READ_SENSORS: AtomicBool = AtomicBool::new(false);
 // Set flag indicating we should check sensor values
+// Interrupt fires 105ms after sensors are reset, values should be ready now.
 #[interrupt]
 fn TIMER_IRQ_0() {
     READY_TO_READ_SENSORS.store(true, Ordering::Relaxed);
+}
+
+/// How many times the 8Hz PWM interrupt must trigger per sample of the sensors, e.g.
+/// 
+/// `WRAPS_PER_SAMPLE = 8/n` where `n` is the sampling frequency
+static WRAPS_PER_SAMPLE: AtomicU8 = AtomicU8::new(1);
+
+/// Whether it's time to reset the sensors to generate new values
+static READY_TO_RESET_SENSORS: AtomicBool = AtomicBool::new(false);
+// Interrupt fires every 125ms. Used to schedule sensor resets
+#[interrupt]
+fn PWM_IRQ_WRAP() {
+    static NUM_WRAPS: AtomicU8 = AtomicU8::new(1);
+    
+    if NUM_WRAPS.load(Ordering::Relaxed) == WRAPS_PER_SAMPLE.load(Ordering::Relaxed) {
+        READY_TO_RESET_SENSORS.store(true, Ordering::Relaxed);
+        NUM_WRAPS.store(1, Ordering::Relaxed);
+    }
+    else { NUM_WRAPS.store(NUM_WRAPS.load(Ordering::Relaxed)+1, Ordering::Relaxed); }
 }
 
 /// Interrupt-accessible container for button pins. 'None' until interrupt is configured by `configure_button_pins`.
@@ -267,7 +311,7 @@ static BUTTON_PINS: Mutex<RefCell<Option<pcb_mapping::ButtonPins>>> = Mutex::new
 #[interrupt]
 fn IO_IRQ_BANK0() {
     critical_section::with(|cs| {
-        if let Some(buttons) = BUTTON_PINS.borrow(cs).take() {
+        if let Some(buttons) = BUTTON_PINS.take(cs) {
             if buttons.select.interrupt_status(gpio::Interrupt::EdgeLow) {
                 BUTTON_STATE.store(ButtonState::Select, Ordering::Relaxed);
             } else if buttons.next.interrupt_status(gpio::Interrupt::EdgeLow) {
