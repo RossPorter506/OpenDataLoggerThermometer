@@ -22,6 +22,7 @@ use constants::*;
 mod pcb_mapping {include!("pcb_v1_mapping.rs");} use pcb_mapping::{ButtonPins, DisplayPins, SDCardPins, TempPowerPins, TempSensePins};
 mod lmt01; use lmt01::{TempSensors, CHARS_PER_READING};
 mod display;
+mod pio;
 mod state_machine;
 use state_machine::{
     ConfigChannelSelectSelectables as ConChanSel,
@@ -42,7 +43,6 @@ use usbd_serial::SerialPort;
 // Used to demonstrate writing formatted strings
 
 /* TODO:
-PIO setup
 I2C and display driver
 SPI and SD driver
 Maybe wrap everything up into a nice struct
@@ -83,8 +83,12 @@ fn main() -> ! {
         sio.gpio_bank0,
         &mut peripherals.RESETS,
     );
-    let (mut temp_sensors, mut sd_card_pins, mut display_pins) = collect_pins(pins);
     
+    let (temp_power, temp_sense, mut sd_card_pins, mut display_pins) = collect_pins(pins);
+
+    let pio_state_machines = pio::configure_pios(peripherals.PIO0, peripherals.PIO1, &mut peripherals.RESETS, &temp_sense);
+    let mut temp_sensors = TempSensors::new(temp_power, temp_sense, pio_state_machines);
+
     let mut watchdog = rp_pico::hal::Watchdog::new(peripherals.WATCHDOG);
     let clocks = rp_pico::hal::clocks::init_clocks_and_plls(
         rp_pico::XOSC_CRYSTAL_FREQ,
@@ -158,6 +162,7 @@ fn main() -> ! {
         // Read sensor values
         if READY_TO_READ_SENSORS.load(Ordering::Relaxed) {
             sensor_values = temp_sensors.read_temperatures().map(lmt01::temp_to_string);
+            temp_sensors.pios.pause();
             let flattened_values = sensor_values.iter().flatten().copied(); // SD card and serial (right now...) don't care about char grouping, so flatten [[u8; _]; _] into [u8; _]
             if config.sd.enabled{
                 spi_buffer.extend(flattened_values.clone());
@@ -177,6 +182,8 @@ fn main() -> ! {
         // Prepare sensors for next reading
         if READY_TO_RESET_SENSORS.load(Ordering::Relaxed) {
             temp_sensors.power.pulse();
+            // May need a delay here
+            temp_sensors.pios.restart();
             const SENSOR_MAX_TIME_FOR_READING_MS: u32 = 104;
             sensors_ready_timer.clear_interrupt(); // Clear the interrupt flag for the 105ms timer. Should be done in the TIMER0 interrupt, but this is good enough 
             let _ = sensors_ready_timer.schedule((SENSOR_MAX_TIME_FOR_READING_MS+1).millis());
@@ -331,7 +338,7 @@ enum ButtonState {
 static BUTTON_STATE: AtomicButtonState = AtomicButtonState::new(ButtonState::None);
 
 /// Collect individual pins and return structs of related pins, configured for use.
-fn collect_pins(pins: rp_pico::Pins) -> (TempSensors, SDCardPins, DisplayPins) {
+fn collect_pins(pins: rp_pico::Pins) -> (TempPowerPins, TempSensePins, SDCardPins, DisplayPins) {
     let mut temp_power = TempPowerPins::new(
         pins.gpio0.reconfigure(),
         pins.gpio2.reconfigure(),
@@ -353,7 +360,6 @@ fn collect_pins(pins: rp_pico::Pins) -> (TempSensors, SDCardPins, DisplayPins) {
         vn7: pins.gpio13.reconfigure(),
         vn8: pins.gpio15.reconfigure(),
     };
-    let temp_sensors = TempSensors::new(temp_power, temp_sense);
     let sd_card_pins = SDCardPins {
         mosi: pins.gpio19.reconfigure(),
         miso: pins.gpio16.reconfigure(),
@@ -367,7 +373,7 @@ fn collect_pins(pins: rp_pico::Pins) -> (TempSensors, SDCardPins, DisplayPins) {
         scl: pins.gpio21.reconfigure(),
     };
     configure_button_pins(pins.gpio27.reconfigure(), pins.gpio28.reconfigure());
-    (temp_sensors, sd_card_pins, display_pins)
+    (temp_power, temp_sense, sd_card_pins, display_pins)
 }
 
 /// Set up button pins for interrupt usage. Button pins are passed to interrupt

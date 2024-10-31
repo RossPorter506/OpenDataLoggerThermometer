@@ -1,7 +1,7 @@
-use crate::{constants::*, pcb_mapping::{TempPowerPins, TempSensePins}};
+use crate::{constants::*, pcb_mapping::{TempPowerPins, TempSensePins}, pio::PioStateMachines};
 
 /// (Temperate in milli-celcius, pulse counts)
-const LMT01_LUT: [(i32, u16); LUT_SIZE] = [
+const LMT01_LUT: [(i32, u32); LUT_SIZE] = [
     (-50_000, 26),
     (-40_000, 181),
     (-30_000, 338),
@@ -26,27 +26,44 @@ const LMT01_LUT: [(i32, u16); LUT_SIZE] = [
 
 pub struct TempSensors {
     pub power: TempPowerPins,
-    pub sense: TempSensePins,
+    pub _sense: TempSensePins,
+    pub pios: PioStateMachines,
     lut: LUTInterpolator,
 }
 impl TempSensors {
-    pub fn new(power: TempPowerPins, sense: TempSensePins) -> Self {
+    pub fn new(power: TempPowerPins, _sense: TempSensePins, pios: PioStateMachines) -> Self {
         let lut = LUTInterpolator::new(LMT01_LUT);
-        Self {power, sense, lut}
+        Self {power, _sense, pios, lut}
     }
     /// Read temperatures from sensors. Values returned in milli-celcius.
-    pub fn read_temperatures(&self) -> [i32; NUM_SENSOR_CHANNELS] {
+    pub fn read_temperatures(&mut self) -> [Option<i32>; NUM_SENSOR_CHANNELS] {
         let counts = self.read_counts();
-        counts.map(|c| self.conv_count_to_temp_lut(c))
+        counts.map(|opt| opt.map(|c| self.conv_count_to_temp_lut(c)))
     }
-    fn read_counts(&self) -> [u16; NUM_SENSOR_CHANNELS] {
-        todo!()
+    fn read_counts(&mut self) -> [Option<u32>; NUM_SENSOR_CHANNELS] {
+        self.pios.p0sm0.tx.write(0);
+        self.pios.p0sm1.tx.write(0);
+        self.pios.p0sm2.tx.write(0);
+        self.pios.p0sm3.tx.write(0);
+        self.pios.p1sm0.tx.write(0);
+        self.pios.p1sm1.tx.write(0);
+        self.pios.p1sm2.tx.write(0);
+        self.pios.p1sm3.tx.write(0);
+
+       [self.pios.p0sm0.rx.read(),
+        self.pios.p0sm1.rx.read(),
+        self.pios.p0sm2.rx.read(),
+        self.pios.p0sm3.rx.read(),
+        self.pios.p1sm0.rx.read(),
+        self.pios.p1sm1.rx.read(),
+        self.pios.p1sm2.rx.read(),
+        self.pios.p1sm3.rx.read()]
     }
     
     /// Input: 0-3218 counts
     ///
     /// Output: Temperature in millicelcius (e.g. -50_000mC -> 150_000mC)
-    fn conv_count_to_temp_lut(&self, pulse_count: u16) -> i32 {
+    fn conv_count_to_temp_lut(&self, pulse_count: u32) -> i32 {
         let pulse_count = pulse_count.min(3218);
         self.lut.interpolate(pulse_count)
     }
@@ -58,46 +75,52 @@ pub const CHARS_PER_READING: usize = 8;
 /// Input: -99_999 to 999_999 mC
 ///
 /// Output: `[u8;8]`, e.g. "-50.012C", "002.901C", "234.750C"
-pub fn temp_to_string(tempr: i32) -> [u8; CHARS_PER_READING] {
-    let neg = tempr < 0;
-    let mut tempr = tempr.clamp(-99_999, 999_999).unsigned_abs();
+/// 
+/// If input is `None` output is empty string
+pub fn temp_to_string(tempr: Option<i32>) -> [u8; CHARS_PER_READING] {
     let mut out = [0u8; CHARS_PER_READING];
+    if let Some(tempr) = tempr {
+        let neg = tempr < 0;
+        let mut tempr = tempr.clamp(-99_999, 999_999).unsigned_abs();
 
-    for i in 0..CHARS_PER_READING - 1 {
-        if CHARS_PER_READING - 2 - i == 3 {
-            continue;
-        } // decimal place
-        let digit = (tempr % 10) as u8;
-        tempr /= 10;
-        out[CHARS_PER_READING - 2 - i] = digit + b'0';
-    }
-    out[CHARS_PER_READING - 5] = b'.';
-    out[CHARS_PER_READING - 1] = b'C';
-
-    // Remove leading zeroes
-    let mut i = 0;
-    for _ in 0..2 {
-        if out[i] == b'0' {
-            out[i] = b' ';
-            i += 1;
-            continue;
+        for i in 0..CHARS_PER_READING - 1 {
+            if CHARS_PER_READING - 2 - i == 3 {
+                continue;
+            } // decimal place
+            let digit = (tempr % 10) as u8;
+            tempr /= 10;
+            out[CHARS_PER_READING - 2 - i] = digit + b'0';
         }
-        break;
-    }
+        out[CHARS_PER_READING - 5] = b'.';
+        out[CHARS_PER_READING - 1] = b'C';
 
-    if neg {
-        out[i.saturating_sub(1)] = b'-';
-    }
+        // Remove leading zeroes
+        let mut i = 0;
+        for _ in 0..2 {
+            if out[i] == b'0' {
+                out[i] = b' ';
+                i += 1;
+                continue;
+            }
+            break;
+        }
 
+        if neg {
+            out[i.saturating_sub(1)] = b'-';
+        }
+    }
+    else {
+        out = *b"        ";
+    }
     out
 }
 
 struct LUTEntry {
-    count: u16,
+    count: u32,
     value: i32,
 }
 impl LUTEntry {
-    fn new(count: u16, value: i32) -> LUTEntry {
+    fn new(count: u32, value: i32) -> LUTEntry {
         LUTEntry { count, value }
     }
 }
@@ -106,11 +129,11 @@ struct LUTInterpolator {
     lut: [LUTEntry; LUT_SIZE],
 }
 impl LUTInterpolator {
-    fn new(arr: [(i32, u16); LUT_SIZE]) -> LUTInterpolator {
+    fn new(arr: [(i32, u32); LUT_SIZE]) -> LUTInterpolator {
         let lut = arr.map(|x| LUTEntry::new(x.1, x.0));
         LUTInterpolator { lut }
     }
-    fn interpolate(&self, test_count: u16) -> i32 {
+    fn interpolate(&self, test_count: u32) -> i32 {
         let test_count = test_count
             .max(self.lut[LUT_SIZE - 1].count)
             .min(self.lut[0].count);
