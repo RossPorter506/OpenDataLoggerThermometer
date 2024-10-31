@@ -8,7 +8,7 @@ use panic_halt as _;
 
 use rp_pico::{
     entry,
-    hal::{gpio, pwm::FreeRunning, timer::Alarm, Clock, Sio, fugit::ExtU32},
+    hal::{gpio, pwm::FreeRunning, spi, timer::Alarm, Clock, Sio, fugit::{ExtU32, RateExtU32}},
     pac::{self, interrupt},
 };
 
@@ -43,8 +43,8 @@ use usbd_serial::SerialPort;
 // Used to demonstrate writing formatted strings
 
 /* TODO:
-I2C and display driver
-SPI and SD driver
+Display driver
+SD card driver
 Maybe wrap everything up into a nice struct
 Stretch goal: Synchronise time with Pico W and NTP
 Stretch goal: Autodetect connected sensor channels and set accordingly
@@ -84,7 +84,7 @@ fn main() -> ! {
         &mut peripherals.RESETS,
     );
     
-    let (temp_power, temp_sense, mut sd_card_pins, mut display_pins) = collect_pins(pins);
+    let (temp_power, temp_sense, sd_card_pins, display_pins) = collect_pins(pins);
 
     let pio_state_machines = pio::configure_pios(peripherals.PIO0, peripherals.PIO1, &mut peripherals.RESETS, &temp_sense);
     let mut temp_sensors = TempSensors::new(temp_power, temp_sense, pio_state_machines);
@@ -101,6 +101,15 @@ fn main() -> ! {
     ).ok()
      .unwrap();
 
+    use rp_pico::hal::i2c::I2C;
+    let display_i2c = I2C::i2c0(peripherals.I2C0, display_pins.sda, display_pins.scl, 100.kHz(), &mut peripherals.RESETS, clocks.system_clock.freq());
+
+    use rp_pico::hal::spi::Spi;
+    const BITS_PER_PACKET: u8 = 8;
+    let sd_card_spi = Spi::<_,_,_,BITS_PER_PACKET>::new(peripherals.SPI0, (sd_card_pins.mosi, sd_card_pins.miso, sd_card_pins.sck));
+    // Start at 400kHz before negotiation, then 25MHz after.
+    sd_card_spi.init(&mut peripherals.RESETS, clocks.peripheral_clock.freq(), 400.kHz(), spi::FrameFormat::MotorolaSpi(embedded_hal::spi::MODE_0));
+    
     // PWM used as timer
     let slices = rp_pico::hal::pwm::Slices::new(peripherals.PWM, &mut peripherals.RESETS);
     let mut sample_rate_timer = slices.pwm0.into_mode::<FreeRunning>();
@@ -155,8 +164,8 @@ fn main() -> ! {
         // Check for button presses
         match BUTTON_STATE.load(Ordering::Relaxed) {
             ButtonState::None => (),
-            ButtonState::Next => update_available = Some(UpdateReason::NextButton),
-            ButtonState::Select => update_available = Some(UpdateReason::SelectButton),
+            ButtonState::NextButton => update_available = Some(UpdateReason::NextButton),
+            ButtonState::SelectButton => update_available = Some(UpdateReason::SelectButton),
         }
 
         // Read sensor values
@@ -309,6 +318,9 @@ fn PWM_IRQ_WRAP() {
     else { NUM_WRAPS.store(NUM_WRAPS.load(Ordering::Relaxed)+1, Ordering::Relaxed); }
 }
 
+
+/// Whether any buttons have been pressed
+static BUTTON_STATE: AtomicButtonState = AtomicButtonState::new(ButtonState::None);
 /// Interrupt-accessible container for button pins. 'None' until interrupt is configured by `configure_button_pins`.
 static BUTTON_PINS: Mutex<RefCell<Option<pcb_mapping::ButtonPins>>> = Mutex::new(RefCell::new(None));
 // Next and Select button interrupts. Set flags for main process. 
@@ -318,9 +330,9 @@ fn IO_IRQ_BANK0() {
     critical_section::with(|cs| {
         if let Some(buttons) = BUTTON_PINS.take(cs) {
             if buttons.select.interrupt_status(gpio::Interrupt::EdgeLow) {
-                BUTTON_STATE.store(ButtonState::Select, Ordering::Relaxed);
+                BUTTON_STATE.store(ButtonState::SelectButton, Ordering::Relaxed);
             } else if buttons.next.interrupt_status(gpio::Interrupt::EdgeLow) {
-                BUTTON_STATE.store(ButtonState::Next, Ordering::Relaxed);
+                BUTTON_STATE.store(ButtonState::NextButton, Ordering::Relaxed);
             }
         }
     });
@@ -331,11 +343,10 @@ fn IO_IRQ_BANK0() {
 #[derive(PartialEq)]
 enum ButtonState {
     None = 0,
-    Next,
-    Select,
+    NextButton,
+    SelectButton,
 }
-/// Whether any buttons have been pressed
-static BUTTON_STATE: AtomicButtonState = AtomicButtonState::new(ButtonState::None);
+
 
 /// Collect individual pins and return structs of related pins, configured for use.
 fn collect_pins(pins: rp_pico::Pins) -> (TempPowerPins, TempSensePins, SDCardPins, DisplayPins) {
@@ -369,7 +380,7 @@ fn collect_pins(pins: rp_pico::Pins) -> (TempPowerPins, TempSensePins, SDCardPin
         card_detect: pins.gpio26.reconfigure(),
     };
     let display_pins = DisplayPins {
-        sck: pins.gpio20.reconfigure(),
+        sda: pins.gpio20.reconfigure(),
         scl: pins.gpio21.reconfigure(),
     };
     configure_button_pins(pins.gpio27.reconfigure(), pins.gpio28.reconfigure());
