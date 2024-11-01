@@ -86,7 +86,7 @@ fn main() -> ! {
     
     let (temp_power, temp_sense, sd_card_pins, display_pins) = collect_pins(pins);
 
-    let pio_state_machines = pio::configure_pios(peripherals.PIO0, peripherals.PIO1, &mut peripherals.RESETS, &temp_sense);
+    let pio_state_machines = lmt01::configure_pios_for_lmt01(peripherals.PIO0, peripherals.PIO1, &mut peripherals.RESETS, &temp_sense);
     let mut temp_sensors = TempSensors::new(temp_power, temp_sense, pio_state_machines);
 
     let mut watchdog = rp_pico::hal::Watchdog::new(peripherals.WATCHDOG);
@@ -171,7 +171,7 @@ fn main() -> ! {
         // Read sensor values
         if READY_TO_READ_SENSORS.load(Ordering::Relaxed) {
             sensor_values = temp_sensors.read_temperatures().map(lmt01::temp_to_string);
-            temp_sensors.pios.pause();
+            temp_sensors.pios.pause_all();
             let flattened_values = sensor_values.iter().flatten().copied(); // SD card and serial (right now...) don't care about char grouping, so flatten [[u8; _]; _] into [u8; _]
             if config.sd.enabled{
                 spi_buffer.extend(flattened_values.clone());
@@ -192,7 +192,7 @@ fn main() -> ! {
         if READY_TO_RESET_SENSORS.load(Ordering::Relaxed) {
             temp_sensors.power.pulse();
             // May need a delay here
-            temp_sensors.pios.restart();
+            temp_sensors.pios.restart_all();
             const SENSOR_MAX_TIME_FOR_READING_MS: u32 = 104;
             sensors_ready_timer.clear_interrupt(); // Clear the interrupt flag for the 105ms timer. Should be done in the TIMER0 interrupt, but this is good enough 
             let _ = sensors_ready_timer.schedule((SENSOR_MAX_TIME_FOR_READING_MS+1).millis());
