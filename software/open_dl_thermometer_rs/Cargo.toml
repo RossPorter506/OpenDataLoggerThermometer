@@ -35,3 +35,6 @@ usbd-serial = "0.2"
 
 # Heap
 embedded-alloc = "0.6"
+
+# Display
+liquid_crystal = "0.2"

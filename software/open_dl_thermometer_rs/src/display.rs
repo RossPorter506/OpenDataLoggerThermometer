@@ -1,7 +1,43 @@
 use arrayvec::ArrayVec;
+use liquid_crystal::I2C;
 
 use crate::config::Config;
 use crate::{lmt01::CHARS_PER_READING, NUM_SENSOR_CHANNELS};
+/// Top-level component for managing the display. Writes one character at a time to keep delays to a minimum
+pub struct IncrementalDisplayWriter<'a, T:embedded_hal::i2c::I2c> {
+    screen: Screen,
+    next_pos: Option<(usize, usize)>,
+    i2c: liquid_crystal::LiquidCrystal<'a, I2C<T>, {SCREEN_WIDTH as u8}, SCREEN_ROWS>,
+}
+impl<'a, T:embedded_hal::i2c::I2c> IncrementalDisplayWriter<'a, T> {
+    pub fn new(screen: Screen, i2c: liquid_crystal::LiquidCrystal<'a, I2C<T>,{SCREEN_WIDTH as u8}, SCREEN_ROWS>) -> Self {
+        Self {screen, next_pos: Some((0,0)), i2c}
+    }
+    pub fn send_next(&mut self, delay: &mut impl liquid_crystal::DelayNs) {
+        if let Some((row,col)) = self.next_pos {
+            let next_u8 = self.screen[row][col];
+            self.i2c.write(delay, liquid_crystal::Text(core::str::from_utf8(&[next_u8]).unwrap()));
+            if col == SCREEN_WIDTH-1 {
+                if row == SCREEN_ROWS-1 {
+                    self.next_pos = None;
+                }
+                else {
+                    // col = 0;
+                    // row += 1;
+                    self.next_pos = Some((row+1, 0));
+                }
+            }
+            else {
+                //col += 1;
+                self.next_pos = Some((row, col+1));
+            }
+        }
+    }
+    pub fn update_display_buffer(&mut self, screen: Screen) {
+        self.screen = screen;
+        self.next_pos = Some((0,0));
+    }
+}
 
 const SCREEN_WIDTH: usize = 20;
 const SCREEN_ROWS:  usize = 4;
@@ -114,14 +150,14 @@ fn find_dynamic_element_placeholders(screen: &Screen) -> ArrayVec<DynamicElement
     for (i, rw) in screen.iter().enumerate() {
         for (j, col) in rw.iter().enumerate() {
             if *col == DYNAMIC_PLACEHOLDER || *col == DYNAMIC_AND_SELECTABLE_PLACEHOLDER {
-                if is_in_dynamic_placeholder == false {
+                if is_in_dynamic_placeholder {
+                    length += 1;
+                }
+                else {
                     is_in_dynamic_placeholder = true;
                     length = 1;
                     row = i;
                     start_col = j;
-                }
-                else {
-                    length += 1;
                 }
             }
             else if is_in_dynamic_placeholder {
@@ -197,7 +233,7 @@ fn set_dynamic_elements(screen: &mut Screen, config: &Config, sensor_values: &[[
 }
 
 use crate::state_machine::State::*;
-pub fn update_display(config: &Config, sensor_values: &[[u8; CHARS_PER_READING]; NUM_SENSOR_CHANNELS], ) {
+pub fn update_display(config: &Config, sensor_values: &[[u8; CHARS_PER_READING]; NUM_SENSOR_CHANNELS]) {
     let (selected_element_pos, mut display_buffer) = match config.curr_state {
         Mainmenu(sel) =>                (Some(sel as usize), MAINMENU_SCREEN),
         ConfigOutputs(sel) =>           (Some(sel as usize), CONFIG_OUTPUTS_SCREEN),
