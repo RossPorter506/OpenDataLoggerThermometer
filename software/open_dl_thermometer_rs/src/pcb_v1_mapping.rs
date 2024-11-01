@@ -36,8 +36,8 @@ pub type SdCardMosi         = gpio::Pin<gpio::bank0::Gpio19, gpio::FunctionSpi, 
 pub type SdCardWriteProtect = gpio::Pin<gpio::bank0::Gpio22, gpio::FunctionSioInput, gpio::PullUp>;
 pub type SdCardDetect       = gpio::Pin<gpio::bank0::Gpio26, gpio::FunctionSioInput, gpio::PullUp>;
 
-pub type DisplaySck         = gpio::Pin<gpio::bank0::Gpio20, gpio::FunctionI2c, gpio::PullNone>;
-pub type DisplayScl         = gpio::Pin<gpio::bank0::Gpio21, gpio::FunctionI2c, gpio::PullNone>;
+pub type DisplaySda         = gpio::Pin<gpio::bank0::Gpio20, gpio::FunctionI2c, gpio::PullUp>;
+pub type DisplayScl         = gpio::Pin<gpio::bank0::Gpio21, gpio::FunctionI2c, gpio::PullUp>;
 
 pub type SelectButton       = gpio::Pin<gpio::bank0::Gpio27, gpio::FunctionSioInput, gpio::PullUp>;
 pub type NextButton         = gpio::Pin<gpio::bank0::Gpio28, gpio::FunctionSioInput, gpio::PullUp>;
@@ -117,7 +117,7 @@ pub struct SDCardPins {
 }
 
 pub struct DisplayPins {
-    pub sck: DisplaySck,
+    pub sda: DisplaySda,
     pub scl: DisplayScl,
 }
 
