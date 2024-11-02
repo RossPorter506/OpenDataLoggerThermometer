@@ -6,23 +6,25 @@ use crate::config::Config;
 use crate::pcb_mapping::{DisplayScl, DisplaySda};
 use crate::{lmt01::CHARS_PER_READING, NUM_SENSOR_CHANNELS};
 
+pub const DISPLAY_I2C_ADDRESS: u8 = 0x27;
+
 /// Top-level component for managing the display. 
 pub struct IncrementalDisplayWriter<'a, T:rp_pico::hal::i2c::I2cDevice> {
     screen: Screen,
     next_pos: Option<(usize, usize)>,
-    driver: liquid_crystal::LiquidCrystal<'a, liquid_crystal::I2C<rp_pico::hal::I2C<T, (DisplayScl, DisplaySda)>>, {SCREEN_COLS as u8}, SCREEN_ROWS>,
+    driver: liquid_crystal::LiquidCrystal<'a, liquid_crystal::I2C<rp_pico::hal::I2C<T, (DisplaySda, DisplayScl)>>, {SCREEN_COLS as u8}, SCREEN_ROWS>,
 }
 impl<'a, T:rp_pico::hal::i2c::I2cDevice> IncrementalDisplayWriter<'a, T> {
-    pub fn new(screen: Screen, liquid_crystal_i2c_interface: &'a mut liquid_crystal::I2C<rp_pico::hal::I2C<T, (DisplayScl, DisplaySda)>>) -> Self {
+    pub fn new(config: &Config, liquid_crystal_i2c_interface: &'a mut liquid_crystal::I2C<rp_pico::hal::I2C<T, (DisplaySda, DisplayScl)>>) -> Self {
         let driver = liquid_crystal::LiquidCrystal::new(liquid_crystal_i2c_interface, Bus4Bits, LCD20X4);
-        Self {screen, next_pos: Some((0,0)), driver}
+        Self {screen: determine_screen(config, None).0, next_pos: Some((0,0)), driver}
     }
-    /// If the display isn't up to date, then send the next character.
+    /// If the display isn't up to date then send one character to the display.
     /// 
     /// Done one character at a time to maximise responsiveness in a polling loop.
     /// 
     /// Returns `true` if another character needs to be sent, `false` if the display is up to date.
-    pub fn send_next(&mut self, delay: &mut impl liquid_crystal::DelayNs) -> bool {
+    pub fn incremental_update(&mut self, delay: &mut impl liquid_crystal::DelayNs) -> bool {
         if let Some((row,col)) = self.next_pos {
             let next_u8 = self.screen[row][col];
             self.driver.write(delay, liquid_crystal::Text(core::str::from_utf8(&[next_u8]).unwrap()));
@@ -34,12 +36,30 @@ impl<'a, T:rp_pico::hal::i2c::I2cDevice> IncrementalDisplayWriter<'a, T> {
         }
         self.next_pos.is_some()
     }
-    /// Change what we want to be displayed on the screen, and mark the screen as needing updating. 
-    /// 
-    /// Does not actually update the display. You must call `send_next()`
-    pub fn update_display_buffer(&mut self, screen: Screen) {
+    /// Change what we want to be displayed on the screen, and marks the screen as needing updating. 
+    /// Does not actually update the display. You must call `incremental_update()`
+    fn update_display_buffer(&mut self, screen: Screen) {
         self.screen = screen;
         self.next_pos = Some((0,0));
+    }
+    /// Determine what the screen should look like based on system state, then update the internal display buffer.
+    /// 
+    /// Does not actually redraw the display. You must call `incremental_update()`
+    pub fn determine_new_screen(&mut self, delay: &mut impl liquid_crystal::DelayNs, config: &Config, sensor_values: Option<&[[u8; CHARS_PER_READING]; NUM_SENSOR_CHANNELS]> ) {
+        let (screen, cursor_pos) = determine_screen(config, sensor_values);
+        self.update_display_buffer(screen);
+
+        // Set up cursor if needed
+        if let Some((cursor_row, cursor_col)) = cursor_pos {
+            self.driver.enable_cursor();
+            self.driver.enable_blink();
+            self.driver.set_cursor(delay, cursor_row, cursor_col as u8);
+        }
+        else {
+            self.driver.disable_cursor();
+            self.driver.disable_blink();
+        }
+        self.driver.update_config(delay);
     }
 }
 
@@ -61,7 +81,7 @@ const DYNAMIC_PLACEHOLDER:    u8 = b'@';
 const SELECTABLE_PLACEHOLDER: u8 = b'%';
 
 /// For elements that are both dynamic and selectable, namely the SD filename characters.
-/// These should be filled out as dynamic elements, but one may need to be selected too.
+/// These should be filled out as dynamic elements, but if selected the blinking cursor should be activated
 const DYNAMIC_AND_SELECTABLE_PLACEHOLDER: u8 = b'#';
 
 struct DynamicElement {
@@ -139,13 +159,25 @@ const SD_WRITE_COMPLETE_SCREEN: Screen = [
 const MAX_DYNAMIC_ELEMENTS: usize = 8;
 
 /// Sets all placeholder selectables to ' ', except for the one current selected, ordered by standard reading order (top left to bottom right)
-fn set_selected_elements(screen: &mut Screen, selected_pos: Option<usize>) {
+fn substitute_selected_elements(screen: &mut Screen, selected_pos: Option<usize>) -> Option<(usize, usize)> {
+    let mut cursor_pos = None;
     if let Some(selected_pos) = selected_pos {
         // Iterate over the screen. Filter out non-placeholders. Replace placeholders with either '>' or ' ' depending on index 
-        for (idx, col) in screen.as_flattened_mut().iter_mut().filter(|&&mut col| col.eq(&SELECTABLE_PLACEHOLDER) ).enumerate() {
-            if idx == selected_pos {*col = b'>';} else {*col = b' ';}
+        // sel_pos = index of selectable (i.e. this is the nth selectable), idx = position in array (i.e. row 2 column 14 = index 54), col = contents of column
+        for (sel_pos, (idx, col)) in 
+            screen.as_flattened_mut().iter_mut().enumerate() // flatten 2D array to 1D, and enumerate all elements
+            .filter(|&(_, &mut col)| [SELECTABLE_PLACEHOLDER, DYNAMIC_AND_SELECTABLE_PLACEHOLDER].contains(&col) ) // filter out non-selectable elements
+            .enumerate() { // enumerate selectable elements
+            match (sel_pos, *col) {
+                (pos, SELECTABLE_PLACEHOLDER            ) if pos == selected_pos    => *col = b'>',
+                (_  , SELECTABLE_PLACEHOLDER            )                           => *col = b' ',
+                (pos, DYNAMIC_AND_SELECTABLE_PLACEHOLDER) if pos == selected_pos    => cursor_pos = Some((idx/SCREEN_COLS, idx%SCREEN_COLS)), // cursor on
+                (_  , DYNAMIC_AND_SELECTABLE_PLACEHOLDER)                           => (), // dealt with by the dynamic
+                (_  , _                                 )                           => (), // do nothing
+            };
         }
     }
+    cursor_pos
 }
 fn find_dynamic_element_placeholders(screen: &Screen) -> ArrayVec<DynamicElement, MAX_DYNAMIC_ELEMENTS> {
     let mut elements: ArrayVec<DynamicElement, MAX_DYNAMIC_ELEMENTS> = ArrayVec::new();
@@ -190,7 +222,8 @@ fn int_to_vec_u8(n: usize) -> Vec<u8> {
 use usbd_serial::embedded_io::Write;
 extern crate alloc;
 use alloc::vec::Vec;
-fn set_dynamic_elements(screen: &mut Screen, config: &Config, sensor_values: &[[u8; CHARS_PER_READING]; NUM_SENSOR_CHANNELS]) {
+/// Replace dynamic placeholders with actual values
+fn substitute_dynamic_elements(screen: &mut Screen, config: &Config, sensor_values: Option<&[[u8; CHARS_PER_READING]; NUM_SENSOR_CHANNELS]>) {
     let dynamic_element_locations = find_dynamic_element_placeholders(screen);
     // Inner Vec<u8> can't be an ArrayVec because it doesn't handle different length strings correctly for some reason
     let mut dynamic_strs = ArrayVec::<Vec<u8>, MAX_DYNAMIC_ELEMENTS>::new();
@@ -225,7 +258,8 @@ fn set_dynamic_elements(screen: &mut Screen, config: &Config, sensor_values: &[[
             dynamic_strs.push( right_align(int_to_vec_u8(kb_per_hr), 3) );
         },
         ViewTemperatures(_) | DatalogTemperatures(_) => {
-            for (&is_enabled, &sensor_value) in config.enabled_channels.iter().zip(sensor_values) {
+            let sensor_values: [[u8; CHARS_PER_READING]; NUM_SENSOR_CHANNELS] = *sensor_values.unwrap_or(&[*b"XXXXXXXX"; NUM_SENSOR_CHANNELS]);
+            for (&is_enabled, sensor_value) in config.enabled_channels.iter().zip(sensor_values) {
                 // Truncate the sensor reading to fit on the display and reappend the 'C' on the end, if enabled
                 let sensor_str: Vec<u8> = if is_enabled {let mut v = sensor_value[..6].to_vec(); v.push(b'C'); v} else {b"      ".into()};
                 dynamic_strs.push(sensor_str);
@@ -239,7 +273,8 @@ fn set_dynamic_elements(screen: &mut Screen, config: &Config, sensor_values: &[[
 }
 
 use crate::state_machine::State::*;
-pub fn update_display(config: &Config, sensor_values: &[[u8; CHARS_PER_READING]; NUM_SENSOR_CHANNELS]) {
+/// Determine what the screen should look like based on system state
+fn determine_screen(config: &Config, sensor_values: Option<&[[u8; CHARS_PER_READING]; NUM_SENSOR_CHANNELS]>) -> (Screen, Option<(usize, usize)>) {
     let (selected_element_pos, mut display_buffer) = match config.curr_state {
         Mainmenu(sel) =>                (Some(sel as usize), MAINMENU_SCREEN),
         ConfigOutputs(sel) =>           (Some(sel as usize), CONFIG_OUTPUTS_SCREEN),
@@ -255,10 +290,9 @@ pub fn update_display(config: &Config, sensor_values: &[[u8; CHARS_PER_READING];
         DatalogSDSafeToRemove(sel) =>   (Some(sel as usize), SD_WRITE_COMPLETE_SCREEN),
     };
 
-    set_selected_elements(&mut display_buffer, selected_element_pos);
+    let cursor_pos = substitute_selected_elements(&mut display_buffer, selected_element_pos);
     
-    set_dynamic_elements(&mut display_buffer, config, sensor_values);
+    substitute_dynamic_elements(&mut display_buffer, config, sensor_values);
 
-    todo!()
-    //send_buffer_to_display(&mut display_buffer, i2c_bus);
+    (display_buffer, cursor_pos)
 }

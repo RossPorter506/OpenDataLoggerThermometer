@@ -135,6 +135,7 @@ pub fn next_state(config: &mut crate::config::Config, update_reason: &UpdateReas
         match update_reason {
             SDSafeToRemove => config.curr_state = DatalogSDSafeToRemove(d::default()),
             SDFull => config.curr_state = DatalogErrorSDFull(d::default()),
+            NextButton => config.curr_state = config.curr_state.next_selectable(),
             _ => (),
         };
         return;

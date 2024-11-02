@@ -2,6 +2,7 @@
 #![no_main]
 #![feature(variant_count)]
 use arrayvec::ArrayVec;
+use display::IncrementalDisplayWriter;
 use core::{cell::RefCell, sync::atomic::AtomicU8};
 use critical_section::Mutex;
 use panic_halt as _;
@@ -101,8 +102,13 @@ fn main() -> ! {
     ).ok()
      .unwrap();
 
+    // System configuration
+    let mut config = Config::new();
+
     use rp_pico::hal::i2c::I2C;
     let display_i2c = I2C::i2c0(peripherals.I2C0, display_pins.sda, display_pins.scl, 100.kHz(), &mut peripherals.RESETS, clocks.system_clock.freq());
+    let mut display_i2c_lq_interface = liquid_crystal::I2C::new(display_i2c, display::DISPLAY_I2C_ADDRESS);
+    let mut display_manager = IncrementalDisplayWriter::new(&config, &mut display_i2c_lq_interface);
 
     use rp_pico::hal::spi::Spi;
     const BITS_PER_PACKET: u8 = 8;
@@ -145,11 +151,8 @@ fn main() -> ! {
         .device_class(2) // from: https://www.usb.org/defined-class-codes
         .build();
 
-    // System configuration
-    let mut config = Config::new();
-
     // Whether we are going to update state and redraw screen
-    let mut update_available: Option<UpdateReason> = None;
+    let mut update_available: Option<UpdateReason>;
 
     // Write controls for SD and serial. false when transmissions are complete, for now
     let mut write_to_sd = false;
@@ -161,12 +164,8 @@ fn main() -> ! {
     let mut spi_buffer = ArrayVec::<u8, {CHARS_PER_READING*NUM_SENSOR_CHANNELS*16 /*Arbitrary size*/}>::new(); // We store values until we're some multiple of the SD card block size. ASCII.
 
     loop {
-        // Check for button presses
-        match BUTTON_STATE.load(Ordering::Relaxed) {
-            ButtonState::None => (),
-            ButtonState::NextButton => update_available = Some(UpdateReason::NextButton),
-            ButtonState::SelectButton => update_available = Some(UpdateReason::SelectButton),
-        }
+        // Clear any updates from the previous loop
+        update_available = None;
 
         // Read sensor values
         if READY_TO_READ_SENSORS.load(Ordering::Relaxed) {
@@ -187,6 +186,13 @@ fn main() -> ! {
             sample_rate_timer.clear_interrupt(); // Clear the interrupt flag for the 125ms timer. Should be done in the PWM interrupt, but this is good enough 
             update_available = Some(UpdateReason::NewSensorValues);
         }
+
+        // Check for button presses
+        update_available = match BUTTON_STATE.load(Ordering::Relaxed) {
+            ButtonState::NextButton => Some(UpdateReason::NextButton),
+            ButtonState::SelectButton => Some(UpdateReason::SelectButton),
+            _ => update_available, // no change
+        };
 
         // Prepare sensors for next reading
         if READY_TO_RESET_SENSORS.load(Ordering::Relaxed) {
@@ -218,9 +224,10 @@ fn main() -> ! {
             } 
             else if usb_dev.poll(&mut [&mut serial]) {
                 // We don't care what gets sent to us, but we need to poll anyway to stay USB compliant
+                // Try to send everything we have
                 match serial.write(serial_buffer.as_slice()) {
+                    // Remove whatever was successfully sent from our buffer
                     Ok(len) => { serial_buffer.drain(0..len); }
-                    // On error, just drop unwritten data.
                     // Err(WouldBlock) implies buffer is full.
                     Err(UsbError::WouldBlock) => (),
                     Err(a) => panic!("{a:?}"),
@@ -230,17 +237,20 @@ fn main() -> ! {
 
         // Service events and update available state, if required
         if let Some(update_reason) = update_available {
-            service_event(&mut config, &update_reason);
+            service_button_event(&mut config, &update_reason);
             state_machine::next_state(&mut config, &update_reason);
-            display::update_display(&config, &sensor_values);
+            display_manager.determine_new_screen(&mut system_timer, &config, Some(&sensor_values));
             if config.status == Idle { sample_rate_timer.disable(); } else { sample_rate_timer.enable(); }
-            update_available = None;
         }
+
+        display_manager.incremental_update(&mut system_timer);
     }
 }
 
-// Figure out what to do when the select button is pressed, based on the current state and what is currently selected
-fn service_event(config: &mut Config, update_reason: &UpdateReason) {
+/// Figure out what to do when the select button is pressed, based on the current state and what is currently selected
+/// 
+/// This function deals exclusively with state machine outputs. Changes to the system state are calculated in `state_machine::next_state()``
+fn service_button_event(config: &mut Config, update_reason: &UpdateReason) {
     if *update_reason != UpdateReason::SelectButton {
         return;
     }
@@ -254,11 +264,11 @@ fn service_event(config: &mut Config, update_reason: &UpdateReason) {
         ConfigOutputs(Serial) => config.serial.enabled ^= true,
         ConfigOutputs(SDCard) => config.sd.enabled ^= true,
 
-        ConfigSDFilename(ConSDName::Next) => (),
+        ConfigSDFilename(ConSDName::Next) => (), // don't accidentally capture this case in the catch-all `char_num` pattern below.
         ConfigSDFilename(Filetype) => config.sd.filetype = config.sd.filetype.next(),
         ConfigSDFilename(char_num) => cycle_ascii_char(&mut config.sd.filename[*char_num as usize]), //filename characters 0-9
 
-        ConfigChannelSelect(ConChanSel::Next) => (),
+        ConfigChannelSelect(ConChanSel::Next) => (), // don't accidentally capture this case in the catch-all `ch_num` pattern below.
         ConfigChannelSelect(ch_num) => config.enabled_channels[*ch_num as usize] ^= true, // selected channels 1-8
 
         ConfigSampleRate(SampleRate) => cycle_sample_rate(&mut config.samples_per_sec),
