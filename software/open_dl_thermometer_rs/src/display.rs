@@ -1,48 +1,54 @@
 use arrayvec::ArrayVec;
-use liquid_crystal::I2C;
+use liquid_crystal::BusBits::Bus4Bits;
+use liquid_crystal::LCD20X4;
 
 use crate::config::Config;
+use crate::pcb_mapping::{DisplayScl, DisplaySda};
 use crate::{lmt01::CHARS_PER_READING, NUM_SENSOR_CHANNELS};
-/// Top-level component for managing the display. Writes one character at a time to keep delays to a minimum
-pub struct IncrementalDisplayWriter<'a, T:embedded_hal::i2c::I2c> {
+
+/// Top-level component for managing the display. 
+pub struct IncrementalDisplayWriter<'a, T:rp_pico::hal::i2c::I2cDevice> {
     screen: Screen,
     next_pos: Option<(usize, usize)>,
-    i2c: liquid_crystal::LiquidCrystal<'a, I2C<T>, {SCREEN_WIDTH as u8}, SCREEN_ROWS>,
+    driver: liquid_crystal::LiquidCrystal<'a, liquid_crystal::I2C<rp_pico::hal::I2C<T, (DisplayScl, DisplaySda)>>, {SCREEN_COLS as u8}, SCREEN_ROWS>,
 }
-impl<'a, T:embedded_hal::i2c::I2c> IncrementalDisplayWriter<'a, T> {
-    pub fn new(screen: Screen, i2c: liquid_crystal::LiquidCrystal<'a, I2C<T>,{SCREEN_WIDTH as u8}, SCREEN_ROWS>) -> Self {
-        Self {screen, next_pos: Some((0,0)), i2c}
+impl<'a, T:rp_pico::hal::i2c::I2cDevice> IncrementalDisplayWriter<'a, T> {
+    pub fn new(screen: Screen, liquid_crystal_i2c_interface: &'a mut liquid_crystal::I2C<rp_pico::hal::I2C<T, (DisplayScl, DisplaySda)>>) -> Self {
+        let driver = liquid_crystal::LiquidCrystal::new(liquid_crystal_i2c_interface, Bus4Bits, LCD20X4);
+        Self {screen, next_pos: Some((0,0)), driver}
     }
-    pub fn send_next(&mut self, delay: &mut impl liquid_crystal::DelayNs) {
+    /// If the display isn't up to date, then send the next character.
+    /// 
+    /// Done one character at a time to maximise responsiveness in a polling loop.
+    /// 
+    /// Returns `true` if another character needs to be sent, `false` if the display is up to date.
+    pub fn send_next(&mut self, delay: &mut impl liquid_crystal::DelayNs) -> bool {
         if let Some((row,col)) = self.next_pos {
             let next_u8 = self.screen[row][col];
-            self.i2c.write(delay, liquid_crystal::Text(core::str::from_utf8(&[next_u8]).unwrap()));
-            if col == SCREEN_WIDTH-1 {
-                if row == SCREEN_ROWS-1 {
-                    self.next_pos = None;
-                }
-                else {
-                    // col = 0;
-                    // row += 1;
-                    self.next_pos = Some((row+1, 0));
-                }
-            }
-            else {
-                //col += 1;
-                self.next_pos = Some((row, col+1));
-            }
+            self.driver.write(delay, liquid_crystal::Text(core::str::from_utf8(&[next_u8]).unwrap()));
+            self.next_pos = match (row, col) {
+                (SCREEN_MAX_ROW, SCREEN_MAX_COL) => None,               // Done
+                (_             , SCREEN_MAX_COL) => Some((row+1, 0)),   // Next row
+                (_             , _             ) => Some((row, col+1)), // Next column
+            };
         }
+        self.next_pos.is_some()
     }
+    /// Change what we want to be displayed on the screen, and mark the screen as needing updating. 
+    /// 
+    /// Does not actually update the display. You must call `send_next()`
     pub fn update_display_buffer(&mut self, screen: Screen) {
         self.screen = screen;
         self.next_pos = Some((0,0));
     }
 }
 
-const SCREEN_WIDTH: usize = 20;
-const SCREEN_ROWS:  usize = 4;
+const SCREEN_COLS: usize = 20;
+const SCREEN_ROWS: usize = 4;
+const SCREEN_MAX_COL: usize = SCREEN_COLS-1;
+const SCREEN_MAX_ROW: usize = SCREEN_ROWS-1;
 
-type Line = [u8; SCREEN_WIDTH];
+type Line = [u8; SCREEN_COLS];
 type Screen = [Line; SCREEN_ROWS];
 
 /// Placeholder for elements that may change based on configuration or system state.
@@ -96,7 +102,7 @@ const CONFIG_CHANNEL_SELECT_SCREEN: Screen = [
 
 const CONFIG_SAMPLE_RATE_SCREEN: Screen = [
     *b"%Sample Rate:@@@/sec",
-    *b"           @@@kB/hr ",
+    *b"             @@@kB/h",
     *b"                    ",
     *b"               %NEXT"];
 
