@@ -393,66 +393,94 @@ DocumentPath=Project Outputs for DataLoggingThermometer\NC Drill\Mainboard-SlotH
 DItemRevisionGUID=
 
 [GeneratedDocument4]
-DocumentPath=Project Outputs for DataLoggingThermometer\NC Drill\Mainboard.DRR
+DocumentPath=Project Outputs for DataLoggingThermometer\Gerber\Mainboard.1
 DItemRevisionGUID=
 
 [GeneratedDocument5]
-DocumentPath=Project Outputs for DataLoggingThermometer\Gerber\Mainboard.EXTREP
+DocumentPath=Project Outputs for DataLoggingThermometer\NC Drill\Mainboard.DRR
 DItemRevisionGUID=
 
 [GeneratedDocument6]
-DocumentPath=Project Outputs for DataLoggingThermometer\Gerber\Mainboard.GBL
+DocumentPath=Project Outputs for DataLoggingThermometer\Gerber\Mainboard.EXTREP
 DItemRevisionGUID=
 
 [GeneratedDocument7]
-DocumentPath=Project Outputs for DataLoggingThermometer\Gerber\Mainboard.GBO
+DocumentPath=Project Outputs for DataLoggingThermometer\Gerber\Mainboard.GBL
 DItemRevisionGUID=
 
 [GeneratedDocument8]
-DocumentPath=Project Outputs for DataLoggingThermometer\Gerber\Mainboard.GBP
+DocumentPath=Project Outputs for DataLoggingThermometer\Gerber\Mainboard.GBO
 DItemRevisionGUID=
 
 [GeneratedDocument9]
-DocumentPath=Project Outputs for DataLoggingThermometer\Gerber\Mainboard.GBS
+DocumentPath=Project Outputs for DataLoggingThermometer\Gerber\Mainboard.GBP
 DItemRevisionGUID=
 
 [GeneratedDocument10]
-DocumentPath=Project Outputs for DataLoggingThermometer\Gerber\Mainboard.GD1
+DocumentPath=Project Outputs for DataLoggingThermometer\Gerber\Mainboard.GBS
 DItemRevisionGUID=
 
 [GeneratedDocument11]
-DocumentPath=Project Outputs for DataLoggingThermometer\Gerber\Mainboard.GG1
+DocumentPath=Project Outputs for DataLoggingThermometer\Gerber\Mainboard.GD1
 DItemRevisionGUID=
 
 [GeneratedDocument12]
-DocumentPath=Project Outputs for DataLoggingThermometer\Gerber\Mainboard.GKO
+DocumentPath=Project Outputs for DataLoggingThermometer\Gerber\Mainboard.GG1
 DItemRevisionGUID=
 
 [GeneratedDocument13]
-DocumentPath=Project Outputs for DataLoggingThermometer\Gerber\Mainboard.GTL
+DocumentPath=Project Outputs for DataLoggingThermometer\Gerber\Mainboard.GKO
 DItemRevisionGUID=
 
 [GeneratedDocument14]
-DocumentPath=Project Outputs for DataLoggingThermometer\Gerber\Mainboard.GTO
+DocumentPath=Project Outputs for DataLoggingThermometer\Gerber\Mainboard.GM1
 DItemRevisionGUID=
 
 [GeneratedDocument15]
-DocumentPath=Project Outputs for DataLoggingThermometer\Gerber\Mainboard.GTP
+DocumentPath=Project Outputs for DataLoggingThermometer\Gerber\Mainboard.GM13
 DItemRevisionGUID=
 
 [GeneratedDocument16]
-DocumentPath=Project Outputs for DataLoggingThermometer\Gerber\Mainboard.GTS
+DocumentPath=Project Outputs for DataLoggingThermometer\Gerber\Mainboard.GM14
 DItemRevisionGUID=
 
 [GeneratedDocument17]
-DocumentPath=Project Outputs for DataLoggingThermometer\NC Drill\Mainboard.LDP
+DocumentPath=Project Outputs for DataLoggingThermometer\Gerber\Mainboard.GM15
 DItemRevisionGUID=
 
 [GeneratedDocument18]
-DocumentPath=Project Outputs for DataLoggingThermometer\Gerber\Mainboard.REP
+DocumentPath=Project Outputs for DataLoggingThermometer\Gerber\Mainboard.GM20
 DItemRevisionGUID=
 
 [GeneratedDocument19]
+DocumentPath=Project Outputs for DataLoggingThermometer\Gerber\Mainboard.GML
+DItemRevisionGUID=
+
+[GeneratedDocument20]
+DocumentPath=Project Outputs for DataLoggingThermometer\Gerber\Mainboard.GTL
+DItemRevisionGUID=
+
+[GeneratedDocument21]
+DocumentPath=Project Outputs for DataLoggingThermometer\Gerber\Mainboard.GTO
+DItemRevisionGUID=
+
+[GeneratedDocument22]
+DocumentPath=Project Outputs for DataLoggingThermometer\Gerber\Mainboard.GTP
+DItemRevisionGUID=
+
+[GeneratedDocument23]
+DocumentPath=Project Outputs for DataLoggingThermometer\Gerber\Mainboard.GTS
+DItemRevisionGUID=
+
+[GeneratedDocument24]
+DocumentPath=Project Outputs for DataLoggingThermometer\NC Drill\Mainboard.LDP
+DItemRevisionGUID=
+
+[GeneratedDocument25]
+DocumentPath=Project Outputs for DataLoggingThermometer\Gerber\Mainboard.REP
+DItemRevisionGUID=
+
+[GeneratedDocument26]
 DocumentPath=Project Outputs for DataLoggingThermometer\Gerber\Mainboard.RUL
 DItemRevisionGUID=
 
@@ -1072,6 +1100,46 @@ OutputName9=Specctra Design PCB
 OutputDocumentPath9=
 OutputVariantName9=
 OutputDefault9=0
+OutputType10=Ansoft Neutral
+OutputName10=Ansoft Neutral (AutoPCB)
+OutputDocumentPath10=
+OutputVariantName10=
+OutputDefault10=0
+OutputType11=HyperLynx
+OutputName11=HyperLynx (AutoPCB)
+OutputDocumentPath11=
+OutputVariantName11=
+OutputDefault11=0
+OutputType12=Orcad SDT Schematic
+OutputName12=Orcad SDT Schematic (AutoSCH)
+OutputDocumentPath12=
+OutputVariantName12=
+OutputDefault12=0
+OutputType13=Orcad v7 Capture Design
+OutputName13=Orcad v7 Capture Design (AutoSCH)
+OutputDocumentPath13=
+OutputVariantName13=
+OutputDefault13=0
+OutputType14=P-CAD ASCII
+OutputName14=P-CAD ASCII (AutoPCB)
+OutputDocumentPath14=
+OutputVariantName14=
+OutputDefault14=0
+OutputType15=P-CAD V16 Schematic Design
+OutputName15=P-CAD V16 Schematic Design (AutoSCH)
+OutputDocumentPath15=
+OutputVariantName15=
+OutputDefault15=0
+OutputType16=Protel PCB 2.8 ASCII
+OutputName16=Protel PCB 2.8 ASCII (AutoPCB)
+OutputDocumentPath16=
+OutputVariantName16=
+OutputDefault16=0
+OutputType17=SiSoft
+OutputName17=SiSoft (AutoPCB)
+OutputDocumentPath17=
+OutputVariantName17=
+OutputDefault17=0
 
 [OutputGroup10]
 Name=PostProcess Outputs
