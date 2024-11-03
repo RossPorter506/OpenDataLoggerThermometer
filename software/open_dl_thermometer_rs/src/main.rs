@@ -72,6 +72,8 @@ fn configure_heap() {
     unsafe { ALLOCATOR.init(core::ptr::addr_of_mut!(HEAP) as usize, HEAP_SIZE) }
 }
 
+const SENSOR_MAX_TIME_FOR_READING_MS: u32 = 104;
+
 #[entry]
 fn main() -> ! {
     configure_heap();
@@ -163,6 +165,9 @@ fn main() -> ! {
     let mut serial_buffer = ArrayVec::<u8, {CHARS_PER_READING*NUM_SENSOR_CHANNELS}>::new(); // We will write to serial as we receive, so buffer need only be big enough for one lot of readings. ASCII.
     let mut spi_buffer = ArrayVec::<u8, {CHARS_PER_READING*NUM_SENSOR_CHANNELS*16 /*Arbitrary size*/}>::new(); // We store values until we're some multiple of the SD card block size. ASCII.
 
+    // Autodetect any connected sensors
+    config.enabled_channels = autodetect_sensor_channels(&mut system_timer, &mut temp_sensors);
+
     loop {
         // Clear any updates from the previous loop
         update_available = None;
@@ -196,10 +201,10 @@ fn main() -> ! {
 
         // Prepare sensors for next reading
         if READY_TO_RESET_SENSORS.load(Ordering::Relaxed) {
-            temp_sensors.power.pulse();
+            temp_sensors.power.turn_off();
             // May need a delay here
+            temp_sensors.power.turn_on();
             temp_sensors.pios.restart_all();
-            const SENSOR_MAX_TIME_FOR_READING_MS: u32 = 104;
             sensors_ready_timer.clear_interrupt(); // Clear the interrupt flag for the 105ms timer. Should be done in the TIMER0 interrupt, but this is good enough 
             let _ = sensors_ready_timer.schedule((SENSOR_MAX_TIME_FOR_READING_MS+1).millis());
             READY_TO_RESET_SENSORS.store(false, Ordering::Relaxed);
@@ -415,4 +420,20 @@ fn configure_button_pins(select: pcb_mapping::SelectButton, next: pcb_mapping::N
     unsafe {
         pac::NVIC::unmask(pac::Interrupt::IO_IRQ_BANK0);
     }
+}
+
+/// Try to get a reading from all sensor channels. If the channel returns `None` then `false`, otherwise `true`.
+fn autodetect_sensor_channels(delay: &mut impl embedded_hal::delay::DelayNs, temp_sensors: &mut TempSensors) -> [bool; NUM_SENSOR_CHANNELS] {
+    temp_sensors.power.turn_off();
+    // May need a delay here
+    temp_sensors.power.turn_on();
+    temp_sensors.pios.restart_all();
+
+    delay.delay_ms(SENSOR_MAX_TIME_FOR_READING_MS+1);
+    let connected = temp_sensors.read_temperatures().map(|opt| opt.is_some());
+
+    temp_sensors.pios.pause_all();
+    temp_sensors.power.turn_off();
+
+    connected
 }
