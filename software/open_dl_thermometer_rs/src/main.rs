@@ -9,8 +9,8 @@ use panic_halt as _;
 
 use rp_pico::{
     entry,
-    hal::{gpio, pwm::FreeRunning, spi, timer::Alarm, Clock, Sio, fugit::{ExtU32, RateExtU32}},
-    pac::{self, interrupt},
+    hal::{clocks::{ClocksManager, UsbClock}, fugit::{ExtU32, RateExtU32}, gpio, pwm::{self, FreeRunning}, spi, timer::{Alarm, Alarm0}, usb::UsbBus, Clock, Sio, Spi, Timer, Watchdog, I2C},
+    pac::{self, interrupt, CLOCKS, I2C0, IO_BANK0, PADS_BANK0, PLL_SYS, PLL_USB, PWM, RESETS, SIO, SPI0, TIMER, USBCTRL_DPRAM, USBCTRL_REGS, WATCHDOG, XOSC},
 };
 
 use atomic_enum::atomic_enum;
@@ -20,7 +20,7 @@ mod config;
 use config::{Config, Status::*};
 mod constants;
 use constants::*;
-mod pcb_mapping {include!("pcb_v1_mapping.rs");} use pcb_mapping::{ButtonPins, DisplayPins, SDCardPins, TempPowerPins, TempSensePins};
+mod pcb_mapping {include!("pcb_v1_mapping.rs");} use pcb_mapping::{ButtonPins, DisplayPins, DisplayScl, DisplaySda, SDCardPins, SdCardMiso, SdCardMosi, SdCardSck, TempPowerPins, TempSensePins};
 mod lmt01; use lmt01::{TempSensors, CHARS_PER_READING};
 mod display;
 mod pio;
@@ -78,80 +78,34 @@ const SENSOR_MAX_TIME_FOR_READING_MS: u32 = 104;
 fn main() -> ! {
     configure_heap();
     // Take ownership of peripherals and pins
-    let mut peripherals = pac::Peripherals::take().unwrap();
-    let sio = Sio::new(peripherals.SIO);
-    let pins = rp_pico::Pins::new(
-        peripherals.IO_BANK0,
-        peripherals.PADS_BANK0,
-        sio.gpio_bank0,
-        &mut peripherals.RESETS,
-    );
+    let mut registers = pac::Peripherals::take().unwrap();
     
-    let (temp_power, temp_sense, sd_card_pins, display_pins) = collect_pins(pins);
+    // GPIO pin groups
+    let (temp_power, temp_sense, sd_card_pins, display_pins) = collect_pins(registers.SIO, registers.IO_BANK0, registers.PADS_BANK0, &mut registers.RESETS);
 
-    let pio_state_machines = lmt01::configure_pios_for_lmt01(peripherals.PIO0, peripherals.PIO1, &mut peripherals.RESETS, &temp_sense);
+    // PIO
+    let pio_state_machines = lmt01::configure_pios_for_lmt01(registers.PIO0, registers.PIO1, &mut registers.RESETS, &temp_sense);
     let mut temp_sensors = TempSensors::new(temp_power, temp_sense, pio_state_machines);
 
-    let mut watchdog = rp_pico::hal::Watchdog::new(peripherals.WATCHDOG);
-    let clocks = rp_pico::hal::clocks::init_clocks_and_plls(
-        rp_pico::XOSC_CRYSTAL_FREQ,
-        peripherals.XOSC,
-        peripherals.CLOCKS,
-        peripherals.PLL_SYS,
-        peripherals.PLL_USB,
-        &mut peripherals.RESETS,
-        &mut watchdog,
-    ).ok()
-     .unwrap();
+    // System clocks
+    let (_watchdog, clocks) = configure_clocks(registers.WATCHDOG, registers.XOSC, registers.CLOCKS, registers.PLL_SYS, registers.PLL_USB, &mut registers.RESETS);
 
     // System configuration
     let mut config = Config::new();
 
-    use rp_pico::hal::i2c::I2C;
-    let display_i2c = I2C::i2c0(peripherals.I2C0, display_pins.sda, display_pins.scl, 100.kHz(), &mut peripherals.RESETS, clocks.system_clock.freq());
-    let mut display_i2c_lq_interface = liquid_crystal::I2C::new(display_i2c, display::DISPLAY_I2C_ADDRESS);
-    let mut display_manager = IncrementalDisplayWriter::new(&config, &mut display_i2c_lq_interface);
+    // I2C and Display
+    let mut i2c = configure_i2c(registers.I2C0, display_pins, &mut registers.RESETS, &clocks);
+    let mut display_manager = IncrementalDisplayWriter::new(&config, &mut i2c);
 
-    use rp_pico::hal::spi::Spi;
-    const BITS_PER_PACKET: u8 = 8;
-    let sd_card_spi = Spi::<_,_,_,BITS_PER_PACKET>::new(peripherals.SPI0, (sd_card_pins.mosi, sd_card_pins.miso, sd_card_pins.sck));
-    // Start at 400kHz before negotiation, then 25MHz after.
-    sd_card_spi.init(&mut peripherals.RESETS, clocks.peripheral_clock.freq(), 400.kHz(), spi::FrameFormat::MotorolaSpi(embedded_hal::spi::MODE_0));
+    // SPI
+    let sdcard_spi = configure_spi(registers.SPI0, sd_card_pins, &mut registers.RESETS, &clocks);
     
-    // PWM used as timer
-    let slices = rp_pico::hal::pwm::Slices::new(peripherals.PWM, &mut peripherals.RESETS);
-    let mut sample_rate_timer = slices.pwm0.into_mode::<FreeRunning>();
-    core::assert!(clocks.system_clock.freq().to_MHz() < 128); // Assume freq < 128MHz because prescaler is 8-bit
-    sample_rate_timer.default_config();
-    sample_rate_timer.set_div_int( (clocks.system_clock.freq().to_MHz() * 2) as u8 ); // 2us resolution => max ~130ms range
-    sample_rate_timer.set_top(62_500); // Want 125ms range
-    sample_rate_timer.enable_interrupt();
+    // Timers
+    let (mut system_timer, mut sample_rate_timer, mut sensors_ready_timer) = configure_timers(registers.PWM, registers.TIMER, &mut registers.RESETS, &clocks);
 
-    // System timer, alarm 0 used to schedule sensor ready alerts
-    let mut system_timer = rp_pico::hal::Timer::new(peripherals.TIMER, &mut peripherals.RESETS, &clocks);
-    let mut sensors_ready_timer = system_timer.alarm_0().unwrap();
-    sensors_ready_timer.enable_interrupt();
-
-    /* Set up USB bus */
-    let usb_bus = UsbBusAllocator::new(rp_pico::hal::usb::UsbBus::new(
-        peripherals.USBCTRL_REGS,
-        peripherals.USBCTRL_DPRAM,
-        clocks.usb_clock,
-        true,
-        &mut peripherals.RESETS,
-    ));
-
-    let mut serial = SerialPort::new(&usb_bus);
-
-    // Create a USB device with a fake VID and PID
-    let mut usb_dev = UsbDeviceBuilder::new(&usb_bus, UsbVidPid(0x16c0, 0x27dd))
-        .strings(&[StringDescriptors::default()
-            .manufacturer("Fake company")
-            .product("Serial port")
-            .serial_number("TEST")])
-        .unwrap()
-        .device_class(2) // from: https://www.usb.org/defined-class-codes
-        .build();
+    // USB
+    let usb_bus = configure_usb_bus(registers.USBCTRL_REGS, registers.USBCTRL_DPRAM, &mut registers.RESETS, clocks.usb_clock);
+    let (mut usb_serial, mut usb_device) = configure_usb(&usb_bus);
 
     // Whether we are going to update state and redraw screen
     let mut update_available: Option<UpdateReason>;
@@ -227,10 +181,10 @@ fn main() -> ! {
             if serial_buffer.is_empty() {
                 write_to_serial = false;
             } 
-            else if usb_dev.poll(&mut [&mut serial]) {
+            else if usb_device.poll(&mut [&mut usb_serial]) {
                 // We don't care what gets sent to us, but we need to poll anyway to stay USB compliant
                 // Try to send everything we have
-                match serial.write(serial_buffer.as_slice()) {
+                match usb_serial.write(serial_buffer.as_slice()) {
                     // Remove whatever was successfully sent from our buffer
                     Ok(len) => { serial_buffer.drain(0..len); }
                     // Err(WouldBlock) implies buffer is full.
@@ -364,7 +318,14 @@ enum ButtonState {
 
 
 /// Collect individual pins and return structs of related pins, configured for use.
-fn collect_pins(pins: rp_pico::Pins) -> (TempPowerPins, TempSensePins, SDCardPins, DisplayPins) {
+fn collect_pins(sio: SIO, io_bank0: IO_BANK0, pads_bank0: PADS_BANK0, resets: &mut RESETS) -> (TempPowerPins, TempSensePins, SDCardPins, DisplayPins) {
+    let sio = Sio::new(sio);
+    let pins = rp_pico::Pins::new(
+        io_bank0,
+        pads_bank0,
+        sio.gpio_bank0,
+        resets,
+    );
     let mut temp_power = TempPowerPins::new(
         pins.gpio0.reconfigure(),
         pins.gpio2.reconfigure(),
@@ -436,4 +397,78 @@ fn autodetect_sensor_channels(delay: &mut impl embedded_hal::delay::DelayNs, tem
     temp_sensors.power.turn_off();
 
     connected
+}
+
+const BITS_PER_SPI_PACKET: u8 = 8;
+fn configure_spi(spi0: SPI0, sdcard_pins: SDCardPins, resets: &mut RESETS, clocks: &ClocksManager) -> rp_pico::hal::Spi<spi::Enabled, SPI0, (SdCardMosi, SdCardMiso, SdCardSck), BITS_PER_SPI_PACKET> {
+    let sdcard_spi = Spi::<_,_,_,BITS_PER_SPI_PACKET>::new(spi0, (sdcard_pins.mosi, sdcard_pins.miso, sdcard_pins.sck));
+    
+    // Start at 400kHz before negotiation, then 25MHz after.
+    sdcard_spi.init(resets, clocks.peripheral_clock.freq(), 400.kHz(), spi::FrameFormat::MotorolaSpi(embedded_hal::spi::MODE_0))
+}
+
+fn configure_i2c(i2c0: I2C0, display_pins: DisplayPins, resets: &mut RESETS, clocks: &ClocksManager,) -> liquid_crystal::I2C<rp_pico::hal::I2C<I2C0, (DisplaySda, DisplayScl)>> {
+    let display_i2c = I2C::i2c0(i2c0, display_pins.sda, display_pins.scl, 100.kHz(), resets, clocks.system_clock.freq());
+
+    liquid_crystal::I2C::new(display_i2c, display::DISPLAY_I2C_ADDRESS)
+}
+
+fn configure_clocks(watchdog: WATCHDOG, xosc: XOSC, clocks: CLOCKS, pll_sys: PLL_SYS, pll_usb: PLL_USB, resets: &mut RESETS) -> (Watchdog, ClocksManager) {
+    let mut watchdog = rp_pico::hal::Watchdog::new(watchdog);
+    let clocks = rp_pico::hal::clocks::init_clocks_and_plls(
+        rp_pico::XOSC_CRYSTAL_FREQ,
+        xosc,
+        clocks,
+        pll_sys,
+        pll_usb,
+        resets,
+        &mut watchdog,
+    ).ok()
+     .unwrap();
+
+    (watchdog, clocks)
+}
+
+fn configure_timers(pwm: PWM, timer: TIMER, resets: &mut RESETS, clocks: &ClocksManager) -> (Timer, pwm::Slice<pwm::Pwm0, FreeRunning>, Alarm0) {
+    // PWM used as timer
+    let slices = rp_pico::hal::pwm::Slices::new(pwm, resets);
+    let mut sample_rate_timer = slices.pwm0.into_mode::<FreeRunning>();
+    core::assert!(clocks.system_clock.freq().to_MHz() < 128); // Assume freq < 128MHz because prescaler is 8-bit
+    sample_rate_timer.default_config();
+    sample_rate_timer.set_div_int( (clocks.system_clock.freq().to_MHz() * 2) as u8 ); // 2us resolution => max ~130ms range
+    sample_rate_timer.set_top(62_500); // Want 125ms range
+    sample_rate_timer.enable_interrupt();
+
+    // System timer, alarm 0 used to schedule sensor ready alerts
+    let mut system_timer = rp_pico::hal::Timer::new(timer, resets, clocks);
+    let mut sensors_ready_timer = system_timer.alarm_0().unwrap();
+    sensors_ready_timer.enable_interrupt();
+
+    (system_timer, sample_rate_timer, sensors_ready_timer)
+}
+
+fn configure_usb_bus(usbctrl_regs: USBCTRL_REGS, usbctrl_dpram: USBCTRL_DPRAM, resets: &mut RESETS, usb_clock: UsbClock) -> UsbBusAllocator<UsbBus> {
+    UsbBusAllocator::new(rp_pico::hal::usb::UsbBus::new(
+        usbctrl_regs,
+        usbctrl_dpram,
+        usb_clock,
+        true,
+        resets,
+    ))
+}
+
+fn configure_usb(usb_bus: &UsbBusAllocator<UsbBus>) -> (SerialPort<UsbBus>, UsbDevice<UsbBus>) {
+    let usb_serial = SerialPort::new(usb_bus);
+
+    // Create a USB device with a fake VID and PID
+    let usb_dev = UsbDeviceBuilder::new(usb_bus, UsbVidPid(0x16c0, 0x27dd))
+        .strings(&[StringDescriptors::default()
+            .manufacturer("Fake company")
+            .product("Serial port")
+            .serial_number("TEST")])
+        .unwrap()
+        .device_class(2) // from: https://www.usb.org/defined-class-codes
+        .build();
+
+    (usb_serial, usb_dev)
 }
