@@ -3,6 +3,7 @@
 #![feature(variant_count)]
 use arrayvec::ArrayVec;
 use display::IncrementalDisplayWriter;
+use embedded_hal::{digital::OutputPin, spi::{ErrorType, SpiBus, SpiDevice}};
 use core::{cell::RefCell, sync::atomic::AtomicU8};
 use critical_section::Mutex;
 use panic_halt as _;
@@ -20,7 +21,7 @@ mod config;
 use config::{Config, Status::*};
 mod constants;
 use constants::*;
-mod pcb_mapping {include!("pcb_v1_mapping.rs");} use pcb_mapping::{ButtonPins, DisplayPins, DisplayScl, DisplaySda, SDCardPins, SdCardMiso, SdCardMosi, SdCardSck, TempPowerPins, TempSensePins};
+mod pcb_mapping {include!("pcb_v1_mapping.rs");} use pcb_mapping::{ButtonPins, DisplayPins, DisplayScl, DisplaySda, SDCardPins, SdCardExtraPins, SdCardMiso, SdCardMosi, SdCardSPIPins, SdCardSck, TempPowerPins, TempSensePins};
 mod lmt01; use lmt01::{TempSensors, CHARS_PER_READING};
 mod display;
 mod pio;
@@ -46,6 +47,7 @@ use usbd_serial::SerialPort;
 /* TODO:
 Display driver
 SD card driver
+Move SD card initialisation somewhere into the loop
 Maybe wrap everything up into a nice struct
 Stretch goal: Synchronise time with Pico W and NTP
 Stretch goal: Autodetect connected sensor channels and set accordingly
@@ -60,6 +62,33 @@ struct SystemPeripherals {
 }
 impl SystemPeripherals {
 }*/
+
+/// Implements embedded_hal SpiDevice
+struct SDCardSPIDriver {
+    spi_bus: Spi<spi::Enabled, SPI0, (SdCardMosi, SdCardMiso, SdCardSck), BITS_PER_SPI_PACKET>,
+    pins: SdCardExtraPins,
+}
+impl ErrorType for SDCardSPIDriver{
+    type Error = embedded_hal::spi::ErrorKind; // For now.
+}
+impl SpiDevice for SDCardSPIDriver {
+    fn transaction(&mut self, operations: &mut [embedded_hal::spi::Operation<'_, u8>]) -> Result<(), Self::Error> {
+        let _ = self.pins.cs.set_low();
+        for op in operations {
+            let _ = match op {
+                embedded_hal::spi::Operation::Read(buf) =>                  self.spi_bus.read(buf),
+                embedded_hal::spi::Operation::Write(buf) =>                 self.spi_bus.write(buf),
+                embedded_hal::spi::Operation::Transfer(rd_buf, wr_buf) =>   self.spi_bus.transfer(rd_buf, wr_buf),
+                embedded_hal::spi::Operation::TransferInPlace(buf) =>       self.spi_bus.transfer_in_place(buf),
+                embedded_hal::spi::Operation::DelayNs(_) => return Err(embedded_hal::spi::ErrorKind::Other), // embedded_sdmmc uses a separate delay object
+            };
+        }
+        let _ = self.spi_bus.flush();
+        let _ = self.pins.cs.set_high();
+        Ok(())
+    }
+}
+
 
 // Heap so we can use Vec, etc.. Try to use ArrayVec where possible though.
 use embedded_alloc::LlffHeap as Heap;
@@ -81,7 +110,7 @@ fn main() -> ! {
     let mut registers = pac::Peripherals::take().unwrap();
     
     // GPIO pin groups
-    let (temp_power, temp_sense, sd_card_pins, display_pins) = collect_pins(registers.SIO, registers.IO_BANK0, registers.PADS_BANK0, &mut registers.RESETS);
+    let (temp_power, temp_sense, sdcard_pins, display_pins) = collect_pins(registers.SIO, registers.IO_BANK0, registers.PADS_BANK0, &mut registers.RESETS);
 
     // PIO
     let pio_state_machines = lmt01::configure_pios_for_lmt01(registers.PIO0, registers.PIO1, &mut registers.RESETS, &temp_sense);
@@ -96,12 +125,13 @@ fn main() -> ! {
     // I2C and Display
     let mut i2c = configure_i2c(registers.I2C0, display_pins, &mut registers.RESETS, &clocks);
     let mut display_manager = IncrementalDisplayWriter::new(&config, &mut i2c);
-
-    // SPI
-    let sdcard_spi = configure_spi(registers.SPI0, sd_card_pins, &mut registers.RESETS, &clocks);
     
     // Timers
     let (mut system_timer, mut sample_rate_timer, mut sensors_ready_timer) = configure_timers(registers.PWM, registers.TIMER, &mut registers.RESETS, &clocks);
+
+    // SPI
+    let spi_bus = configure_spi(registers.SPI0, sdcard_pins.spi, &mut registers.RESETS, &clocks);
+    let sdcard = embedded_sdmmc::SdCard::new(SDCardSPIDriver{spi_bus, pins: sdcard_pins.extra}, system_timer);
 
     // USB
     let usb_bus = configure_usb_bus(registers.USBCTRL_REGS, registers.USBCTRL_DPRAM, &mut registers.RESETS, clocks.usb_clock);
@@ -348,12 +378,17 @@ fn collect_pins(sio: SIO, io_bank0: IO_BANK0, pads_bank0: PADS_BANK0, resets: &m
         vn8: pins.gpio15.reconfigure(),
     };
     let sd_card_pins = SDCardPins {
-        mosi: pins.gpio19.reconfigure(),
-        miso: pins.gpio16.reconfigure(),
-        sck: pins.gpio18.reconfigure(),
-        cs: pins.gpio17.reconfigure(),
-        write_protect: pins.gpio22.reconfigure(),
-        card_detect: pins.gpio26.reconfigure(),
+        spi: SdCardSPIPins{
+            mosi: pins.gpio19.reconfigure(),
+            miso: pins.gpio16.reconfigure(),
+            sck: pins.gpio18.reconfigure(),
+        },
+        extra: SdCardExtraPins {
+            cs: pins.gpio17.reconfigure(),
+            write_protect: pins.gpio22.reconfigure(),
+            card_detect: pins.gpio26.reconfigure(),
+        }
+        
     };
     let display_pins = DisplayPins {
         sda: pins.gpio20.reconfigure(),
@@ -400,11 +435,14 @@ fn autodetect_sensor_channels(delay: &mut impl embedded_hal::delay::DelayNs, tem
 }
 
 const BITS_PER_SPI_PACKET: u8 = 8;
-fn configure_spi(spi0: SPI0, sdcard_pins: SDCardPins, resets: &mut RESETS, clocks: &ClocksManager) -> rp_pico::hal::Spi<spi::Enabled, SPI0, (SdCardMosi, SdCardMiso, SdCardSck), BITS_PER_SPI_PACKET> {
+fn configure_spi(spi0: SPI0, sdcard_pins: SdCardSPIPins, resets: &mut RESETS, clocks: &ClocksManager) -> rp_pico::hal::Spi<spi::Enabled, SPI0, (SdCardMosi, SdCardMiso, SdCardSck), BITS_PER_SPI_PACKET> {
     let sdcard_spi = Spi::<_,_,_,BITS_PER_SPI_PACKET>::new(spi0, (sdcard_pins.mosi, sdcard_pins.miso, sdcard_pins.sck));
     
     // Start at 400kHz before negotiation, then 25MHz after.
-    sdcard_spi.init(resets, clocks.peripheral_clock.freq(), 400.kHz(), spi::FrameFormat::MotorolaSpi(embedded_hal::spi::MODE_0))
+    let mut sdcard_spi = sdcard_spi.init(resets, clocks.peripheral_clock.freq(), 400.kHz(), spi::FrameFormat::MotorolaSpi(embedded_hal::spi::MODE_0));
+    let _ = sdcard_spi.write(&[0;10]); // Send at least 74 cycles of the clock to the SD card. TODO: This should be moved in future, as if a card is hot-inserted it will miss this.
+    sdcard_spi.set_baudrate(clocks.peripheral_clock.freq(), 25.MHz());
+    sdcard_spi
 }
 
 fn configure_i2c(i2c0: I2C0, display_pins: DisplayPins, resets: &mut RESETS, clocks: &ClocksManager,) -> liquid_crystal::I2C<rp_pico::hal::I2C<I2C0, (DisplaySda, DisplayScl)>> {

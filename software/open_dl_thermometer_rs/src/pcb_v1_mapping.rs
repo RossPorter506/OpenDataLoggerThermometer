@@ -30,9 +30,9 @@ pub type VP7On              = gpio::Pin<gpio::bank0::Gpio12, gpio::FunctionSioOu
 pub type VP8On              = gpio::Pin<gpio::bank0::Gpio14, gpio::FunctionSioOutput, gpio::PullNone>;
 */
 pub type SdCardMiso         = gpio::Pin<gpio::bank0::Gpio16, gpio::FunctionSpi, gpio::PullUp>;
-pub type SdCardCs           = gpio::Pin<gpio::bank0::Gpio17, gpio::FunctionSpi, gpio::PullUp>;
 pub type SdCardSck          = gpio::Pin<gpio::bank0::Gpio18, gpio::FunctionSpi, gpio::PullUp>;
 pub type SdCardMosi         = gpio::Pin<gpio::bank0::Gpio19, gpio::FunctionSpi, gpio::PullUp>;
+pub type SdCardCs           = gpio::Pin<gpio::bank0::Gpio17, gpio::FunctionSioOutput, gpio::PullUp>;
 pub type SdCardWriteProtect = gpio::Pin<gpio::bank0::Gpio22, gpio::FunctionSioInput, gpio::PullUp>;
 pub type SdCardDetect       = gpio::Pin<gpio::bank0::Gpio26, gpio::FunctionSioInput, gpio::PullUp>;
 
@@ -108,9 +108,15 @@ pub struct TempSensePins {
 }
 
 pub struct SDCardPins {
+    pub spi:            SdCardSPIPins,
+    pub extra:          SdCardExtraPins,
+}
+pub struct SdCardSPIPins { // Pins managed by SPI peripheral
     pub mosi:           SdCardMosi,
     pub miso:           SdCardMiso,
     pub sck:            SdCardSck,
+}
+pub struct SdCardExtraPins { // Other pins related to SD card
     pub cs:             SdCardCs,
     pub write_protect:  SdCardWriteProtect,
     pub card_detect:    SdCardDetect,
