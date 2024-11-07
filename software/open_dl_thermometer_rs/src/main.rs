@@ -122,13 +122,14 @@ fn main() -> ! {
     // System configuration
     let mut config = Config::new();
 
-    // I2C and Display
-    let mut i2c = configure_i2c(registers.I2C0, display_pins, &mut registers.RESETS, &clocks);
-    let mut display_manager = IncrementalDisplayWriter::new(&config, &mut i2c);
-    
     // Timers
     let (mut system_timer, mut sample_rate_timer, mut sensors_ready_timer) = configure_timers(registers.PWM, registers.TIMER, &mut registers.RESETS, &clocks);
 
+    // I2C and Display
+    let mut i2c = configure_i2c(registers.I2C0, display_pins, &mut registers.RESETS, &clocks);
+    let mut display_manager = IncrementalDisplayWriter::new(&config, &mut i2c);
+    display_manager.load_custom_chars(&mut system_timer);
+    
     // SPI
     let spi_bus = configure_spi(registers.SPI0, sdcard_pins.spi, &mut registers.RESETS, &clocks);
     let sdcard = embedded_sdmmc::SdCard::new(SDCardSPIDriver{spi_bus, pins: sdcard_pins.extra}, system_timer);

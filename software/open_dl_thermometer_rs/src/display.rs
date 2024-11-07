@@ -61,6 +61,13 @@ impl<'a, T:rp_pico::hal::i2c::I2cDevice> IncrementalDisplayWriter<'a, T> {
         }
         self.driver.update_config(delay);
     }
+
+    /// Loads all our custom characters into the display's memory
+    pub fn load_custom_chars(&mut self, delay: &mut impl liquid_crystal::DelayNs) {
+        for char in [TICK, CROSS] {
+            self.driver.custom_char(delay, &char.bitmap, char.address);
+        }
+    }
 }
 
 const SCREEN_COLS: usize = 20;
@@ -157,6 +164,40 @@ const SD_WRITE_COMPLETE_SCREEN: Screen = [
     *b"               %NEXT"];
 
 const MAX_DYNAMIC_ELEMENTS: usize = 8;
+
+
+struct CustomCharacter {
+    address: u8,
+    bitmap: [u8; 8]
+}
+
+const TICK: CustomCharacter = CustomCharacter{
+    address:0, 
+    bitmap: [
+        0b11111, //
+        0b11111, // 
+        0b11110, //     #
+        0b11101, //    #
+        0b01011, // # #
+        0b10111, //  #
+        0b11111, // 
+        0b11111, // 
+    ]
+};
+
+const CROSS: CustomCharacter = CustomCharacter{
+    address:1, 
+    bitmap: [
+        0b11111, // 
+        0b11111, // 
+        0b01110, // #   #
+        0b10101, //  # #
+        0b11011, //   #
+        0b10101, //  # #
+        0b01110, // #   #
+        0b11111, // 
+    ]
+};
 
 /// Sets all placeholder selectables to ' ', except for the one current selected, ordered by standard reading order (top left to bottom right)
 fn substitute_selected_elements(screen: &mut Screen, selected_pos: Option<usize>) -> Option<(usize, usize)> {
