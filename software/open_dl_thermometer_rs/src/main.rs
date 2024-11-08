@@ -10,7 +10,7 @@ use panic_halt as _;
 
 use rp_pico::{
     entry,
-    hal::{clocks::{ClocksManager, UsbClock}, fugit::{ExtU32, RateExtU32}, gpio, pwm::{self, FreeRunning}, spi, timer::{Alarm, Alarm0}, usb::UsbBus, Clock, Sio, Spi, Timer, Watchdog, I2C},
+    hal::{clocks::{ClocksManager, UsbClock}, fugit::{ExtU32, RateExtU32}, gpio, pwm::{self, FreeRunning, Pwm0, Slice}, spi, timer::{Alarm, Alarm0}, usb::UsbBus, Clock, Sio, Spi, Timer, Watchdog, I2C},
     pac::{self, interrupt, CLOCKS, I2C0, IO_BANK0, PADS_BANK0, PLL_SYS, PLL_USB, PWM, RESETS, SIO, SPI0, TIMER, USBCTRL_DPRAM, USBCTRL_REGS, WATCHDOG, XOSC},
 };
 
@@ -141,9 +141,8 @@ fn main() -> ! {
     // Whether we are going to update state and redraw screen
     let mut update_available: Option<UpdateReason>;
 
-    // Write controls for SD and serial. false when transmissions are complete, for now
+    // Write controls for SD card. false when transmissions are complete, for now
     let mut write_to_sd = false;
-    let mut write_to_serial = false;
 
     // Buffers
     let mut sensor_values = [[0u8; CHARS_PER_READING]; NUM_SENSOR_CHANNELS]; // Most recent sensor values, to be written to display, serial, or SD card
@@ -154,46 +153,24 @@ fn main() -> ! {
     config.enabled_channels = autodetect_sensor_channels(&mut system_timer, &mut temp_sensors);
 
     loop {
-        // Clear any updates from the previous loop
         update_available = None;
 
-        // Read sensor values
-        if READY_TO_READ_SENSORS.load(Ordering::Relaxed) {
-            sensor_values = temp_sensors.read_temperatures().map(lmt01::temp_to_string);
-            temp_sensors.pios.pause_all();
-            let flattened_values = sensor_values.iter().flatten().copied(); // SD card and serial (right now...) don't care about char grouping, so flatten [[u8; _]; _] into [u8; _]
-            if config.sd.enabled{
-                spi_buffer.extend(flattened_values.clone());
-                if spi_buffer.is_full() { write_to_sd = true; }
-            }
-            
-            if config.serial.enabled {
-                serial_buffer = flattened_values.collect();
-                write_to_serial = true;
-            }
-
-            READY_TO_READ_SENSORS.store(false, Ordering::Relaxed);
-            sample_rate_timer.clear_interrupt(); // Clear the interrupt flag for the 125ms timer. Should be done in the PWM interrupt, but this is good enough 
+        if SENSOR_READINGS_AVAILABLE.load(Ordering::Relaxed) {
+            read_sensors(&mut temp_sensors, &mut sensor_values, &mut serial_buffer, &mut spi_buffer, &config, &mut sample_rate_timer, &mut write_to_sd);
             update_available = Some(UpdateReason::NewSensorValues);
         }
+        
+        if READY_TO_START_NEXT_READING.load(Ordering::Relaxed) {
+            start_next_sensor_reading(&mut temp_sensors, &mut sensors_ready_timer);
+        }
 
-        // Check for button presses
+        // Check for button presses. This does override the `update_available` value from the above sensor readings, but
+        // button presses always prompt a screen redraw anyway, so any new sensor values will be displayed regardless. 
         update_available = match BUTTON_STATE.load(Ordering::Relaxed) {
             ButtonState::NextButton => Some(UpdateReason::NextButton),
             ButtonState::SelectButton => Some(UpdateReason::SelectButton),
             _ => update_available, // no change
         };
-
-        // Prepare sensors for next reading
-        if READY_TO_RESET_SENSORS.load(Ordering::Relaxed) {
-            temp_sensors.power.turn_off();
-            // May need a delay here
-            temp_sensors.power.turn_on();
-            temp_sensors.pios.restart_all();
-            sensors_ready_timer.clear_interrupt(); // Clear the interrupt flag for the 105ms timer. Should be done in the TIMER0 interrupt, but this is good enough 
-            let _ = sensors_ready_timer.schedule((SENSOR_MAX_TIME_FOR_READING_MS+1).millis());
-            READY_TO_RESET_SENSORS.store(false, Ordering::Relaxed);
-        }
 
         // Deal with SD card
         if write_to_sd {
@@ -208,22 +185,7 @@ fn main() -> ! {
         }
 
         // Serial
-        if write_to_serial {
-            if serial_buffer.is_empty() {
-                write_to_serial = false;
-            } 
-            else if usb_device.poll(&mut [&mut usb_serial]) {
-                // We don't care what gets sent to us, but we need to poll anyway to stay USB compliant
-                // Try to send everything we have
-                match usb_serial.write(serial_buffer.as_slice()) {
-                    // Remove whatever was successfully sent from our buffer
-                    Ok(len) => { serial_buffer.drain(0..len); }
-                    // Err(WouldBlock) implies buffer is full.
-                    Err(UsbError::WouldBlock) => (),
-                    Err(a) => panic!("{a:?}"),
-                };
-            }
-        }
+        manage_serial_comms(&mut usb_device, &mut usb_serial, &mut serial_buffer);
 
         // Service events and update available state, if required
         if let Some(update_reason) = update_available {
@@ -233,7 +195,58 @@ fn main() -> ! {
             if config.status == Idle { sample_rate_timer.disable(); } else { sample_rate_timer.enable(); }
         }
 
+        // Screen updates
         display_manager.incremental_update(&mut system_timer);
+    }
+}
+
+/// Read values from the LMT01 sensors. 
+fn read_sensors(temp_sensors: &mut TempSensors, 
+        sensor_values: &mut [[u8; CHARS_PER_READING]; NUM_SENSOR_CHANNELS], 
+        serial_buffer: &mut ArrayVec::<u8, {CHARS_PER_READING*NUM_SENSOR_CHANNELS}>, 
+        spi_buffer: &mut ArrayVec::<u8, {CHARS_PER_READING*NUM_SENSOR_CHANNELS*16}>, 
+        config: &Config, sample_rate_timer: &mut Slice<Pwm0, FreeRunning>,
+        write_to_sd: &mut bool) {
+
+    *sensor_values = temp_sensors.read_temperatures().map(lmt01::temp_to_string);
+    temp_sensors.pios.pause_all();
+    let flattened_values = sensor_values.iter().flatten().copied(); // SD card and serial (right now...) don't care about char grouping, so flatten [[u8; _]; _] into [u8; _]
+    if config.sd.enabled {
+        spi_buffer.extend(flattened_values.clone());
+        if spi_buffer.is_full() { *write_to_sd = true; }
+    }
+    
+    if config.serial.enabled {
+        *serial_buffer = flattened_values.collect();
+    }
+
+    SENSOR_READINGS_AVAILABLE.store(false, Ordering::Relaxed);
+    sample_rate_timer.clear_interrupt(); // Clear the interrupt flag for the 125ms timer. Should be done in the PWM interrupt, but this is good enough 
+}
+
+/// If it's time to get another reading then restart the LMT01 sensors.
+fn start_next_sensor_reading(temp_sensors: &mut TempSensors, sensors_ready_timer: &mut Alarm0) {
+    temp_sensors.power.turn_off();
+    // May need a delay here
+    temp_sensors.power.turn_on();
+    temp_sensors.pios.restart_all();
+    sensors_ready_timer.clear_interrupt(); // Clear the interrupt flag for the 105ms timer. Should be done in the TIMER0 interrupt, but this is good enough 
+    let _ = sensors_ready_timer.schedule((SENSOR_MAX_TIME_FOR_READING_MS+1).millis());
+    READY_TO_START_NEXT_READING.store(false, Ordering::Relaxed);
+}
+
+/// Try to send data over serial.
+fn manage_serial_comms(usb_device: &mut UsbDevice<UsbBus>, usb_serial: &mut SerialPort<UsbBus>, serial_buffer: &mut ArrayVec::<u8, {CHARS_PER_READING*NUM_SENSOR_CHANNELS}>) {
+    if !serial_buffer.is_empty() && usb_device.poll(&mut [usb_serial]) {
+        // We don't care what gets sent to us, but we need to poll anyway to stay USB compliant
+        // Try to send everything we have
+        match usb_serial.write(serial_buffer.as_slice()) {
+            // Remove whatever was successfully sent from our buffer
+            Ok(len) => { serial_buffer.drain(0..len); }
+            // Err(WouldBlock) implies buffer is full.
+            Err(UsbError::WouldBlock) => (),
+            Err(a) => panic!("{a:?}"),
+        };
     }
 }
 
@@ -291,12 +304,12 @@ fn cycle_sample_rate(rate: &mut u8) {
 }
 
 /// Whether it's time to read the sensors for new values
-static READY_TO_READ_SENSORS: AtomicBool = AtomicBool::new(false);
+static SENSOR_READINGS_AVAILABLE: AtomicBool = AtomicBool::new(false);
 // Set flag indicating we should check sensor values
 // Interrupt fires 105ms after sensors are reset, values should be ready now.
 #[interrupt]
 fn TIMER_IRQ_0() {
-    READY_TO_READ_SENSORS.store(true, Ordering::Relaxed);
+    SENSOR_READINGS_AVAILABLE.store(true, Ordering::Relaxed);
 }
 
 /// How many times the 8Hz PWM interrupt must trigger per sample of the sensors, e.g.
@@ -305,14 +318,14 @@ fn TIMER_IRQ_0() {
 static WRAPS_PER_SAMPLE: AtomicU8 = AtomicU8::new(1);
 
 /// Whether it's time to reset the sensors to generate new values
-static READY_TO_RESET_SENSORS: AtomicBool = AtomicBool::new(false);
-// Interrupt fires every 125ms. Used to schedule sensor resets
+static READY_TO_START_NEXT_READING: AtomicBool = AtomicBool::new(false);
+// Interrupt fires some multiple of 125ms (based on sample rate). Used to schedule sensor resets
 #[interrupt]
 fn PWM_IRQ_WRAP() {
     static NUM_WRAPS: AtomicU8 = AtomicU8::new(1);
     
     if NUM_WRAPS.load(Ordering::Relaxed) == WRAPS_PER_SAMPLE.load(Ordering::Relaxed) {
-        READY_TO_RESET_SENSORS.store(true, Ordering::Relaxed);
+        READY_TO_START_NEXT_READING.store(true, Ordering::Relaxed);
         NUM_WRAPS.store(1, Ordering::Relaxed);
     }
     else { NUM_WRAPS.store(NUM_WRAPS.load(Ordering::Relaxed)+1, Ordering::Relaxed); }
