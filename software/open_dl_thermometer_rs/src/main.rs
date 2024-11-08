@@ -31,6 +31,7 @@ mod pcb_mapping {include!("pcb_v1_mapping.rs");}
 use pcb_mapping::{ButtonPins, DisplayPins, DisplayScl, DisplaySda, SdCardCs, SdCardExtraPins, SdCardMiso, SdCardMosi, SdCardPins, SdCardSPIPins, SdCardSck, TempPowerPins, TempSensePins};
 mod lmt01; use lmt01::{TempSensors, CHARS_PER_READING};
 mod display; use display::IncrementalDisplayWriter;
+mod sd_card;
 mod pio;
 mod state_machine;
 use state_machine::{
@@ -135,7 +136,7 @@ fn main() -> ! {
     
     // SPI
     let spi_bus = configure_spi(registers.SPI0, sdcard_pins.spi, &mut registers.RESETS, &clocks);
-    let mut sdcard = embedded_sdmmc::SdCard::new(SDCardSPIDriver{spi_bus, cs: sdcard_pins.cs}, system_timer);
+    let mut sd_manager = crate::sd_card::SdCard::new(SDCardSPIDriver{spi_bus, cs: sdcard_pins.cs}, system_timer);
 
     // USB
     let usb_bus = configure_usb_bus(registers.USBCTRL_REGS, registers.USBCTRL_DPRAM, &mut registers.RESETS, clocks.usb_clock);
@@ -187,7 +188,7 @@ fn main() -> ! {
             todo!();
         }
 
-        monitor_sdcard_state(&mut sdcard, &mut sdcard_pins.extra, &mut config, &mut update_available, &clocks.peripheral_clock);
+        monitor_sdcard_state(sd_manager.get_card(), &mut sdcard_pins.extra, &mut config, &mut update_available, &clocks.peripheral_clock);
 
         // Serial
         manage_serial_comms(&mut usb_device, &mut usb_serial, &mut serial_buffer);

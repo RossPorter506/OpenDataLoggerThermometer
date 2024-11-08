@@ -1,13 +1,22 @@
-use embedded_hal::spi::Spi;
-use embedded_hal::blocking::delay::DelayMs;
-use embedded_sdmmc::{Controller, SdMmcSpi, VolumeIdx};
-mod pcb_v1_mapping;
-use pcb_v1_mapping::SdCardPins;
+use embedded_hal::digital::InputPin;
+use embedded_hal::{delay::DelayNs, spi};
+use embedded_hal::spi::SpiDevice;
+use embedded_sdmmc::*;
+use rp_pico::hal::{Timer};
 
-// let sd_card = SdMmcSpi::new(
-//     spi,
-//     sd_card_pins,
-//     &mut delay,
-//     &mut delay,
-//     VolumeIdx(0),
-// ).unwrap();
+pub struct SdCard {
+    pub card: embedded_sdmmc::SdCard<crate::SDCardSPIDriver, Timer>,
+}
+
+impl SdCard {
+    pub fn new(spi: crate::SDCardSPIDriver, delay: Timer) -> Self {
+        let new_card = embedded_sdmmc::SdCard::new(spi, delay);
+        Self {
+            card: new_card,
+        }
+    }
+
+    pub fn get_card(&mut self) -> &mut embedded_sdmmc::SdCard<crate::SDCardSPIDriver, Timer> {
+        &mut self.card
+    }
+}
