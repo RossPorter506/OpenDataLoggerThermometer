@@ -4,6 +4,9 @@ use rp_pico::{hal::pio::{InstalledProgram, PIOExt, UninitStateMachine}, pac};
 
 use crate::{constants::*, pcb_mapping::{TempPowerPins, TempSensePins}, pio::AllPioStateMachines};
 
+/// Maximum time required for an LMT01 to communicate one sensor reading
+pub const SENSOR_MAX_TIME_FOR_READING_MS: u32 = 104;
+
 /// (Temperature in milli-celcius, pulse counts)
 const LMT01_LUT: [(i32, u32); LUT_SIZE] = [
     (-50_000, 26),
@@ -68,7 +71,7 @@ pub const CHARS_PER_READING: usize = 8;
 ///
 /// Output: `[u8;8]`, e.g. "-50.012C", "002.901C", "234.750C"
 /// 
-/// If input is `None` output is empty string
+/// If input is `None` output is "        "
 pub fn temp_to_string(tempr: Option<i32>) -> [u8; CHARS_PER_READING] {
     let mut out = [0u8; CHARS_PER_READING];
     if let Some(tempr) = tempr {
@@ -76,7 +79,7 @@ pub fn temp_to_string(tempr: Option<i32>) -> [u8; CHARS_PER_READING] {
         let mut tempr = tempr.clamp(-99_999, 999_999).unsigned_abs();
 
         for i in 0..CHARS_PER_READING - 1 {
-            if CHARS_PER_READING - 2 - i == 3 {
+            if CHARS_PER_READING - 2 - i == 3 { // Decimal place
                 continue;
             } // decimal place
             let digit = (tempr % 10) as u8;
@@ -107,6 +110,7 @@ pub fn temp_to_string(tempr: Option<i32>) -> [u8; CHARS_PER_READING] {
     out
 }
 
+/// Look up table entry
 struct LUTEntry {
     count: u32,
     value: i32,
@@ -125,10 +129,12 @@ impl LUTInterpolator {
         let lut = arr.map(|x| LUTEntry::new(x.1, x.0));
         LUTInterpolator { lut }
     }
+    /// Interpolate between values in a lookup table using a weighted average.
     fn interpolate(&self, test_count: u32) -> i32 {
-        let test_count = test_count
-            .max(self.lut[LUT_SIZE - 1].count)
-            .min(self.lut[0].count);
+        // Restrict input to within the extremes of the LUT
+        let test_count = test_count.clamp(self.lut[0].count, self.lut[LUT_SIZE - 1].count);
+
+        // Find the two neighbouring points that are above and below the test value
         let mut below_index: usize = 0;
         for i in 0..LUT_SIZE {
             if test_count >= self.lut[i].count {
@@ -138,16 +144,19 @@ impl LUTInterpolator {
             }
         }
         let above_index = below_index + 1;
+
         let below_count = self.lut[below_index].count;
         let above_count = self.lut[above_index].count;
         let below_temp = self.lut[below_index].value;
         let above_temp = self.lut[above_index].value;
+
+        // Do a weighted average
         let ratio = (test_count - below_count) as f32 / (above_count - below_count) as f32;
-        let result = above_temp as f32 * ratio + below_temp as f32 * (1.0 - ratio);
+        let test_temp = (above_temp as f32 * ratio) + (below_temp as f32 * (1.0 - ratio));
         
-        num_traits::float::FloatCore::round(result)
-            .max(self.lut[0].value as f32)
-            .min(self.lut[LUT_SIZE - 1].value as f32) as i32
+        // Round to nearest integer. TODO: Second clamp probably not necessary. 
+        num_traits::float::FloatCore::round(test_temp)
+            .clamp(self.lut[0].value as f32, self.lut[LUT_SIZE - 1].value as f32) as i32
     }
 }
 
