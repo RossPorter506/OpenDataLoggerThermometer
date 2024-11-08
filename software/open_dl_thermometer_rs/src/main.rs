@@ -322,7 +322,7 @@ fn service_button_event(config: &mut Config, update_reason: &UpdateReason) {
         ConfigChannelSelect(ConChanSel::Next) => (), // don't accidentally capture this case in the catch-all `ch_num` pattern below.
         ConfigChannelSelect(ch_num) => config.enabled_channels[*ch_num as usize] ^= true, // selected channels 1-8
 
-        ConfigSampleRate(SampleRate) => cycle_sample_rate(&mut config.samples_per_sec),
+        ConfigSampleRate(SampleRate) => {cycle_sample_rate(&mut config.samples_per_sec); WRAPS_PER_SAMPLE.store(8/config.samples_per_sec, Ordering::Relaxed);},
         ConfigSampleRate(ConRateSel::Next) => (),
 
         DatalogConfirmStop(ConfirmStop) => config.status = Idle,
