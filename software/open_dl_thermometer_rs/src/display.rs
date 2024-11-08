@@ -274,12 +274,12 @@ fn substitute_dynamic_elements(screen: &mut Screen, config: &Config, sensor_valu
             dynamic_strs.push(if config.sd.enabled     {b"YES"} else {b"NO "}.into());
         },
         ConfigSDStatus(_) => {
-            dynamic_strs.push(if todo!() {b"YES"} else {b"NO "}.into());   // SD detected
-            dynamic_strs.push(if todo!() {b"YES"} else {b"NO "}.into());   // SD writable
-            dynamic_strs.push(if todo!() {b"YES"} else {b"NO "}.into());   // SD formatted
+            dynamic_strs.push(if config.sd.card_detected {b"YES"} else {b"NO "}.into());   // SD detected
+            dynamic_strs.push(if config.sd.card_writable {b"YES"} else {b"NO "}.into());   // SD writable
+            dynamic_strs.push(if config.sd.card_formatted {b"YES"} else {b"NO "}.into());   // SD formatted
             // Free space
             const MAX_FREE_SPACE_CHARS: usize = 5;
-            let free_space_megabytes: usize = todo!();
+            let free_space_megabytes: usize = config.sd.free_space_bytes as usize / 1_000_000;
             let free_space_str = int_to_vec_u8(free_space_megabytes);
             dynamic_strs.push( if free_space_str.len() < MAX_FREE_SPACE_CHARS {right_align(free_space_str, MAX_FREE_SPACE_CHARS)} else {b"9999+".into()} ); 
         },

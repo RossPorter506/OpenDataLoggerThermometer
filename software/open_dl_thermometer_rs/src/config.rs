@@ -42,13 +42,21 @@ pub struct SDConfig {
     pub enabled: bool,
     pub filename: [u8; FILENAME_MAX_LEN],
     pub filetype: Filetype,
+    pub card_detected: bool,
+    pub card_writable: bool,
+    pub card_formatted: bool,
+    pub free_space_bytes: u32,
 }
 impl Default for SDConfig {
     fn default() -> Self {
         Self {
             enabled: false,
+            card_detected: false,
+            card_writable: false,
+            card_formatted: false,
+            free_space_bytes: 0,
             filetype: Filetype::Csv,
-            filename: [0; FILENAME_MAX_LEN],
+            filename: [b'\0'; FILENAME_MAX_LEN],
         }
     }
 }
