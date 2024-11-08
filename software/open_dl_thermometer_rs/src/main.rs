@@ -10,7 +10,7 @@ use panic_halt as _;
 
 use rp_pico::{
     entry,
-    hal::{clocks::{ClocksManager, UsbClock}, fugit::{ExtU32, RateExtU32}, gpio, pwm::{self, FreeRunning, Pwm0, Slice}, spi, timer::{Alarm, Alarm0}, usb::UsbBus, Clock, Sio, Spi, Timer, Watchdog, I2C},
+    hal::{clocks::{ClocksManager, PeripheralClock, UsbClock}, fugit::{ExtU32, RateExtU32}, gpio, pwm::{self, FreeRunning, Pwm0, Slice}, spi, timer::{Alarm, Alarm0}, usb::UsbBus, Clock, Sio, Spi, Timer, Watchdog, I2C},
     pac::{self, interrupt, CLOCKS, I2C0, IO_BANK0, PADS_BANK0, PLL_SYS, PLL_USB, PWM, RESETS, SIO, SPI0, TIMER, USBCTRL_DPRAM, USBCTRL_REGS, WATCHDOG, XOSC},
 };
 
@@ -51,7 +51,7 @@ use usbd_serial::SerialPort;
 /* TODO:
 Display driver
 SD card driver
-Move SD card initialisation somewhere into the loop
+Determine when SD card is safe to remove
 Maybe wrap everything up into a nice struct
 Stretch goal: Synchronise time with Pico W and NTP
 Stretch goal: Autodetect connected sensor channels and set accordingly
@@ -136,7 +136,7 @@ fn main() -> ! {
     
     // SPI
     let spi_bus = configure_spi(registers.SPI0, sdcard_pins.spi, &mut registers.RESETS, &clocks);
-    let sdcard = embedded_sdmmc::SdCard::new(SDCardSPIDriver{spi_bus, cs: sdcard_pins.cs}, system_timer);
+    let mut sdcard = embedded_sdmmc::SdCard::new(SDCardSPIDriver{spi_bus, cs: sdcard_pins.cs}, system_timer);
     let mut safe_to_remove_sd = false;
 
     // USB
@@ -189,7 +189,7 @@ fn main() -> ! {
             todo!();
         }
 
-        monitor_sdcard_state(&mut sdcard_pins.extra, &mut config, &mut update_available);
+        monitor_sdcard_state(&mut sdcard, &mut sdcard_pins.extra, &mut config, &mut update_available, &clocks.peripheral_clock);
 
         // Serial
         manage_serial_comms(&mut usb_device, &mut usb_serial, &mut serial_buffer);
@@ -207,10 +207,10 @@ fn main() -> ! {
     }
 }
 
-/// Listen for an SD card being added or removed
-fn monitor_sdcard_state(sdcard_extra_pins: &mut SdCardExtraPins, config: &mut Config, update_available: &mut Option<UpdateReason>) {
+/// Listen for an SD card being inserted or removed and initialise, if required
+fn monitor_sdcard_state(sdcard: &mut embedded_sdmmc::SdCard<SDCardSPIDriver, Timer>, sdcard_extra_pins: &mut SdCardExtraPins, config: &mut Config, update_available: &mut Option<UpdateReason>, peripheral_clock: &PeripheralClock) {
     let sd_present = sdcard_extra_pins.card_detect.is_low().unwrap();
-    if config.sd.card_detected && !sd_present {
+    if config.sd.card_detected && !sd_present { // SD card removed
         config.sd.card_detected = false;
         config.sd.card_writable = false;
         config.sd.card_formatted = false;
@@ -228,8 +228,15 @@ fn monitor_sdcard_state(sdcard_extra_pins: &mut SdCardExtraPins, config: &mut Co
             todo!();
         }
     }
-    else if !config.sd.card_detected && sd_present {
-        // SD card added
+    else if !config.sd.card_detected && sd_present { // SD card inserted
+        // Ensure SPI bus is clocked at 400kHz for initialisation, then
+        // send at least 74 clock pulses (without chip select) to wake up card,
+        // then reconfigure SPI back to 25MHz
+        sdcard.spi(|driver| {
+            driver.spi_bus.set_baudrate(peripheral_clock.freq(), 400.kHz());
+            let _ = driver.spi_bus.write(&[0;10]); 
+            driver.spi_bus.set_baudrate(peripheral_clock.freq(), 25.MHz())
+        });
         config.sd.card_detected = true;
         config.sd.card_writable = sdcard_extra_pins.write_protect.is_low().unwrap();
         config.sd.card_formatted = todo!();
@@ -504,10 +511,7 @@ fn configure_spi(spi0: SPI0, sdcard_pins: SdCardSPIPins, resets: &mut RESETS, cl
     let sdcard_spi = Spi::<_,_,_,BITS_PER_SPI_PACKET>::new(spi0, (sdcard_pins.mosi, sdcard_pins.miso, sdcard_pins.sck));
     
     // Start at 400kHz before negotiation, then 25MHz after.
-    let mut sdcard_spi = sdcard_spi.init(resets, clocks.peripheral_clock.freq(), 400.kHz(), spi::FrameFormat::MotorolaSpi(embedded_hal::spi::MODE_0));
-    let _ = sdcard_spi.write(&[0;10]); // Send at least 74 cycles of the clock to the SD card. TODO: This should be moved in future, as if a card is hot-inserted it will miss this.
-    sdcard_spi.set_baudrate(clocks.peripheral_clock.freq(), 25.MHz());
-    sdcard_spi
+    sdcard_spi.init(resets, clocks.peripheral_clock.freq(), 400.kHz(), spi::FrameFormat::MotorolaSpi(embedded_hal::spi::MODE_0))
 }
 
 fn configure_i2c(i2c0: I2C0, display_pins: DisplayPins, resets: &mut RESETS, clocks: &ClocksManager,) -> liquid_crystal::I2C<rp_pico::hal::I2C<I2C0, (DisplaySda, DisplayScl)>> {
