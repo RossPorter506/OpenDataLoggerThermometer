@@ -28,6 +28,8 @@ pub enum State {
     DatalogSDWriting(DatalogSDWritingSelectables),
     /// SD Card writes complete, safe to remove now
     DatalogSDSafeToRemove(DatalogSDSafeToRemoveSelectables),
+    /// SD Card removed unexpectedly while in use
+    DatalogSDUnexpectedRemoval(DatalogErrorSdUnexpectedRemovalSelectables),
 }
 impl State {
     // Not proud of this one. Still, beats the alternatives...
@@ -46,6 +48,7 @@ impl State {
             DatalogErrorSDFull(sel) => DatalogErrorSDFull(sel.next()),
             DatalogSDWriting(sel) => DatalogSDWriting(sel.next()),
             DatalogSDSafeToRemove(sel) => DatalogSDSafeToRemove(sel.next()),
+            DatalogSDUnexpectedRemoval(sel) => DatalogSDUnexpectedRemoval(sel.next()),
         }
     }
 }
@@ -114,6 +117,10 @@ create_selectables!(
     DatalogErrorSDFullSelectables,
     [ContinueWithoutSD, StopDatalogging]
 );
+create_selectables!(
+    DatalogErrorSdUnexpectedRemovalSelectables,
+    [ContinueWithoutSD, StopDatalogging]
+);
 create_selectables!(DatalogSDWritingSelectables, []);
 create_selectables!(DatalogSDSafeToRemoveSelectables, [Next,]);
 
@@ -129,12 +136,15 @@ use DatalogErrorSDFullSelectables::*;
 use DatalogSDSafeToRemoveSelectables as DlSDSafe;
 use MainmenuSelectables::*;
 
+use crate::config::Status::SamplingAndDatalogging;
 /// Determine the next state based on the current state and config
 pub fn next_state(config: &mut crate::config::Config, update_reason: &UpdateReason) {
     if *update_reason != SelectButton {
         match update_reason {
             SDSafeToRemove => config.curr_state = DatalogSDSafeToRemove(d::default()),
             SDFull => config.curr_state = DatalogErrorSDFull(d::default()),
+            SDRemovedUnexpectedly => 
+                if config.status == SamplingAndDatalogging && config.sd.enabled {config.curr_state = DatalogSDUnexpectedRemoval(d::default())},
             NextButton => config.curr_state = config.curr_state.next_selectable(),
             _ => (),
         };
@@ -186,5 +196,6 @@ pub enum UpdateReason {
     NewSensorValues,
     SDSafeToRemove,
     SDFull,
+    SDRemovedUnexpectedly,
 }
 use UpdateReason::*;

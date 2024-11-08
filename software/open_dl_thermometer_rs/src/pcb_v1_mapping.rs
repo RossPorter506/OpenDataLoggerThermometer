@@ -107,8 +107,9 @@ pub struct TempSensePins {
     pub vn8: VN8,
 }
 
-pub struct SDCardPins {
+pub struct SdCardPins {
     pub spi:            SdCardSPIPins,
+    pub cs:             SdCardCs,
     pub extra:          SdCardExtraPins,
 }
 pub struct SdCardSPIPins { // Pins managed by SPI peripheral
@@ -117,7 +118,6 @@ pub struct SdCardSPIPins { // Pins managed by SPI peripheral
     pub sck:            SdCardSck,
 }
 pub struct SdCardExtraPins { // Other pins related to SD card
-    pub cs:             SdCardCs,
     pub write_protect:  SdCardWriteProtect,
     pub card_detect:    SdCardDetect,
 }

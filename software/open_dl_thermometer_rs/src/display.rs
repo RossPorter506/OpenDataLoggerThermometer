@@ -151,6 +151,12 @@ const SD_FULL_SCREEN: Screen = [
     *b"               %YES ",
     *b"               %NO  "];
 
+const SD_REMOVED_SCREEN: Screen = [
+    *b"ERR: SD Card Removed",
+    *b"Continue without SD?",
+    *b"               %YES ",
+    *b"               %NO  "];
+
 const SD_WRITING_SCREEN: Screen = [
     *b"Writing to SD card  ",
     *b"Do not remove...    ",
@@ -317,18 +323,19 @@ use crate::state_machine::State::*;
 /// Determine what the screen should look like based on system state
 fn determine_screen(config: &Config, sensor_values: Option<&[[u8; CHARS_PER_READING]; NUM_SENSOR_CHANNELS]>) -> (Screen, Option<(usize, usize)>) {
     let (selected_element_pos, mut display_buffer) = match config.curr_state {
-        Mainmenu(sel) =>                (Some(sel as usize), MAINMENU_SCREEN),
-        ConfigOutputs(sel) =>           (Some(sel as usize), CONFIG_OUTPUTS_SCREEN),
-        ConfigSDStatus(sel) =>          (Some(sel as usize), CONFIG_SD_STATUS_SCREEN),
-        ConfigSDFilename(sel) =>        (Some(sel as usize), CONFIG_SD_FILENAME_SCREEN),
-        ConfigChannelSelect(sel) =>     (Some(sel as usize), CONFIG_CHANNEL_SELECT_SCREEN),
-        ConfigSampleRate(sel) =>        (Some(sel as usize), CONFIG_SAMPLE_RATE_SCREEN),
-        ViewTemperatures(_) =>          (None,               VIEW_SCREEN),
-        DatalogTemperatures(_) =>       (None,               VIEW_SCREEN),
-        DatalogConfirmStop(sel) =>      (Some(sel as usize), CONFIRM_STOP_LOGGING_SCREEN),
-        DatalogErrorSDFull(sel) =>      (Some(sel as usize), SD_FULL_SCREEN),
-        DatalogSDWriting(_) =>          (None,               SD_WRITING_SCREEN),
-        DatalogSDSafeToRemove(sel) =>   (Some(sel as usize), SD_WRITE_COMPLETE_SCREEN),
+        Mainmenu(sel) =>                    (Some(sel as usize), MAINMENU_SCREEN),
+        ConfigOutputs(sel) =>               (Some(sel as usize), CONFIG_OUTPUTS_SCREEN),
+        ConfigSDStatus(sel) =>              (Some(sel as usize), CONFIG_SD_STATUS_SCREEN),
+        ConfigSDFilename(sel) =>            (Some(sel as usize), CONFIG_SD_FILENAME_SCREEN),
+        ConfigChannelSelect(sel) =>         (Some(sel as usize), CONFIG_CHANNEL_SELECT_SCREEN),
+        ConfigSampleRate(sel) =>            (Some(sel as usize), CONFIG_SAMPLE_RATE_SCREEN),
+        ViewTemperatures(_) =>              (None,               VIEW_SCREEN),
+        DatalogTemperatures(_) =>           (None,               VIEW_SCREEN),
+        DatalogConfirmStop(sel) =>          (Some(sel as usize), CONFIRM_STOP_LOGGING_SCREEN),
+        DatalogErrorSDFull(sel) =>          (Some(sel as usize), SD_FULL_SCREEN),
+        DatalogSDWriting(_) =>              (None,               SD_WRITING_SCREEN),
+        DatalogSDSafeToRemove(sel) =>       (Some(sel as usize), SD_WRITE_COMPLETE_SCREEN),
+        DatalogSDUnexpectedRemoval(sel) =>  (Some(sel as usize), SD_REMOVED_SCREEN),
     };
 
     let cursor_pos = substitute_selected_elements(&mut display_buffer, selected_element_pos);

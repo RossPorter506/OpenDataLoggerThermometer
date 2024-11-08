@@ -3,7 +3,7 @@
 #![feature(variant_count)]
 use arrayvec::ArrayVec;
 use display::IncrementalDisplayWriter;
-use embedded_hal::{digital::OutputPin, spi::{ErrorType, SpiBus, SpiDevice}};
+use embedded_hal::{digital::{InputPin, OutputPin}, spi::{ErrorType, SpiBus, SpiDevice}};
 use core::{cell::RefCell, sync::atomic::AtomicU8};
 use critical_section::Mutex;
 use panic_halt as _;
@@ -21,21 +21,25 @@ mod config;
 use config::{Config, Status::*};
 mod constants;
 use constants::*;
-mod pcb_mapping {include!("pcb_v1_mapping.rs");} use pcb_mapping::{ButtonPins, DisplayPins, DisplayScl, DisplaySda, SDCardPins, SdCardExtraPins, SdCardMiso, SdCardMosi, SdCardSPIPins, SdCardSck, TempPowerPins, TempSensePins};
+mod pcb_mapping {include!("pcb_v1_mapping.rs");} use pcb_mapping::{ButtonPins, DisplayPins, DisplayScl, DisplaySda, SdCardCs, SdCardExtraPins, SdCardMiso, SdCardMosi, SdCardPins, SdCardSPIPins, SdCardSck, TempPowerPins, TempSensePins};
 mod lmt01; use lmt01::{TempSensors, CHARS_PER_READING};
 mod display;
 mod pio;
 mod state_machine;
 use state_machine::{
-    ConfigChannelSelectSelectables as ConChanSel,
-    ConfigOutputsSelectables::*,
-    ConfigSDFilenameSelectables::{self as ConSDName, *},
-    ConfigSampleRateSelectables::*,
-    DatalogConfirmStopSelectables::*,
-    DatalogErrorSDFullSelectables::*,
-    MainmenuSelectables::*,
-    State::*,
-    UpdateReason, ViewTemperaturesSelectables as ViewTemp,
+    ConfigChannelSelectSelectables as ConChanSel, 
+    ConfigOutputsSelectables::{self as ConOutSel, *}, 
+    ConfigSDFilenameSelectables::{self as ConSDName, *}, 
+    ConfigSDStatusSelectables as ConSdStatSel, 
+    ConfigSampleRateSelectables::{self as ConRateSel, *}, 
+    DatalogConfirmStopSelectables::*, 
+    DatalogErrorSDFullSelectables::*, 
+    DatalogErrorSdUnexpectedRemovalSelectables as DlogSdRemovSel, 
+    DatalogSDSafeToRemoveSelectables as DlogSafeRemovSel, 
+    DatalogSDWritingSelectables as DlogSdWrtSel, 
+    DatalogTemperaturesSelectables as DlogTempSel, 
+    MainmenuSelectables::*, State::*, UpdateReason, 
+    ViewTemperaturesSelectables as ViewTemp
 };
 
 // USB
@@ -66,14 +70,14 @@ impl SystemPeripherals {
 /// Implements embedded_hal SpiDevice
 struct SDCardSPIDriver {
     spi_bus: Spi<spi::Enabled, SPI0, (SdCardMosi, SdCardMiso, SdCardSck), BITS_PER_SPI_PACKET>,
-    pins: SdCardExtraPins,
+    cs: SdCardCs,
 }
 impl ErrorType for SDCardSPIDriver{
     type Error = embedded_hal::spi::ErrorKind; // For now.
 }
 impl SpiDevice for SDCardSPIDriver {
     fn transaction(&mut self, operations: &mut [embedded_hal::spi::Operation<'_, u8>]) -> Result<(), Self::Error> {
-        let _ = self.pins.cs.set_low();
+        let _ = self.cs.set_low();
         for op in operations {
             let _ = match op {
                 embedded_hal::spi::Operation::Read(buf) =>                  self.spi_bus.read(buf),
@@ -84,7 +88,7 @@ impl SpiDevice for SDCardSPIDriver {
             };
         }
         let _ = self.spi_bus.flush();
-        let _ = self.pins.cs.set_high();
+        let _ = self.cs.set_high();
         Ok(())
     }
 }
@@ -110,7 +114,7 @@ fn main() -> ! {
     let mut registers = pac::Peripherals::take().unwrap();
     
     // GPIO pin groups
-    let (temp_power, temp_sense, sdcard_pins, display_pins) = collect_pins(registers.SIO, registers.IO_BANK0, registers.PADS_BANK0, &mut registers.RESETS);
+    let (temp_power, temp_sense, mut sdcard_pins, display_pins) = collect_pins(registers.SIO, registers.IO_BANK0, registers.PADS_BANK0, &mut registers.RESETS);
 
     // PIO
     let pio_state_machines = lmt01::configure_pios_for_lmt01(registers.PIO0, registers.PIO1, &mut registers.RESETS, &temp_sense);
@@ -132,7 +136,8 @@ fn main() -> ! {
     
     // SPI
     let spi_bus = configure_spi(registers.SPI0, sdcard_pins.spi, &mut registers.RESETS, &clocks);
-    let sdcard = embedded_sdmmc::SdCard::new(SDCardSPIDriver{spi_bus, pins: sdcard_pins.extra}, system_timer);
+    let sdcard = embedded_sdmmc::SdCard::new(SDCardSPIDriver{spi_bus, cs: sdcard_pins.cs}, system_timer);
+    let mut safe_to_remove_sd = false;
 
     // USB
     let usb_bus = configure_usb_bus(registers.USBCTRL_REGS, registers.USBCTRL_DPRAM, &mut registers.RESETS, clocks.usb_clock);
@@ -184,6 +189,8 @@ fn main() -> ! {
             todo!();
         }
 
+        monitor_sdcard_state(&mut sdcard_pins.extra, &mut config, &mut update_available);
+
         // Serial
         manage_serial_comms(&mut usb_device, &mut usb_serial, &mut serial_buffer);
 
@@ -197,6 +204,37 @@ fn main() -> ! {
 
         // Screen updates
         display_manager.incremental_update(&mut system_timer);
+    }
+}
+
+/// Listen for an SD card being added or removed
+fn monitor_sdcard_state(sdcard_extra_pins: &mut SdCardExtraPins, config: &mut Config, update_available: &mut Option<UpdateReason>) {
+    let sd_present = sdcard_extra_pins.card_detect.is_low().unwrap();
+    if config.sd.card_detected && !sd_present {
+        config.sd.card_detected = false;
+        config.sd.card_writable = false;
+        config.sd.card_formatted = false;
+        config.sd.free_space_bytes = 0;
+
+        if config.sd.safe_to_remove {
+            // SD card removed safely
+            // Anything extra to do here?
+            todo!();
+        }
+        else {
+            // SD card removed unexpectedly
+            // Move to SD card error screen
+            *update_available = Some(UpdateReason::SDRemovedUnexpectedly);
+            todo!();
+        }
+    }
+    else if !config.sd.card_detected && sd_present {
+        // SD card added
+        config.sd.card_detected = true;
+        config.sd.card_writable = sdcard_extra_pins.write_protect.is_low().unwrap();
+        config.sd.card_formatted = todo!();
+        config.sd.free_space_bytes = todo!();
+        todo!();
     }
 }
 
@@ -261,11 +299,16 @@ fn service_button_event(config: &mut Config, update_reason: &UpdateReason) {
     match &config.curr_state {
         Mainmenu(View) => config.status = Sampling,
         Mainmenu(Datalog) => config.status = SamplingAndDatalogging,
+        Mainmenu(Configure) => (),
 
-        ViewTemperatures(ViewTemp::None) => config.status = Idle,
+        ViewTemperatures(ViewTemp::None) => config.status = Idle, 
+        DatalogTemperatures(DlogTempSel::None) => (), // Don't exit datalogging mode yet, confirm screen first
 
         ConfigOutputs(Serial) => config.serial.enabled ^= true,
         ConfigOutputs(SDCard) => config.sd.enabled ^= true,
+        ConfigOutputs(ConOutSel::Next) => (),
+
+        ConfigSDStatus(ConSdStatSel::Next) => (),
 
         ConfigSDFilename(ConSDName::Next) => (), // don't accidentally capture this case in the catch-all `char_num` pattern below.
         ConfigSDFilename(Filetype) => config.sd.filetype = config.sd.filetype.next(),
@@ -275,12 +318,20 @@ fn service_button_event(config: &mut Config, update_reason: &UpdateReason) {
         ConfigChannelSelect(ch_num) => config.enabled_channels[*ch_num as usize] ^= true, // selected channels 1-8
 
         ConfigSampleRate(SampleRate) => cycle_sample_rate(&mut config.samples_per_sec),
+        ConfigSampleRate(ConRateSel::Next) => (),
 
         DatalogConfirmStop(ConfirmStop) => config.status = Idle,
+        DatalogConfirmStop(CancelStop) => (),
 
         DatalogErrorSDFull(ContinueWithoutSD) => config.sd.enabled = false,
         DatalogErrorSDFull(StopDatalogging) => config.status = Idle,
-        _ => (),
+        
+        DatalogSDWriting(DlogSdWrtSel::None) => (),
+
+        DatalogSDSafeToRemove(DlogSafeRemovSel::Next) => (),
+
+        DatalogSDUnexpectedRemoval(DlogSdRemovSel::ContinueWithoutSD) => config.sd.enabled = false,
+        DatalogSDUnexpectedRemoval(DlogSdRemovSel::StopDatalogging) => config.status = Idle,
     };
 }
 /// Cycle through alphanumeric ASCII values
@@ -293,7 +344,7 @@ fn cycle_ascii_char(char: &mut u8) {
         _ => b'a',
     };
 }
-/// Cycle between 1 - 8
+/// Cycle between 1, 2, 4, 8
 fn cycle_sample_rate(rate: &mut u8) {
     *rate = match *rate {
         1 => 2,
@@ -362,7 +413,7 @@ enum ButtonState {
 
 
 /// Collect individual pins and return structs of related pins, configured for use.
-fn collect_pins(sio: SIO, io_bank0: IO_BANK0, pads_bank0: PADS_BANK0, resets: &mut RESETS) -> (TempPowerPins, TempSensePins, SDCardPins, DisplayPins) {
+fn collect_pins(sio: SIO, io_bank0: IO_BANK0, pads_bank0: PADS_BANK0, resets: &mut RESETS) -> (TempPowerPins, TempSensePins, SdCardPins, DisplayPins) {
     let sio = Sio::new(sio);
     let pins = rp_pico::Pins::new(
         io_bank0,
@@ -391,14 +442,14 @@ fn collect_pins(sio: SIO, io_bank0: IO_BANK0, pads_bank0: PADS_BANK0, resets: &m
         vn7: pins.gpio13.reconfigure(),
         vn8: pins.gpio15.reconfigure(),
     };
-    let sd_card_pins = SDCardPins {
+    let sd_card_pins = SdCardPins {
         spi: SdCardSPIPins{
             mosi: pins.gpio19.reconfigure(),
             miso: pins.gpio16.reconfigure(),
             sck: pins.gpio18.reconfigure(),
         },
+        cs: pins.gpio17.reconfigure(),
         extra: SdCardExtraPins {
-            cs: pins.gpio17.reconfigure(),
             write_protect: pins.gpio22.reconfigure(),
             card_detect: pins.gpio26.reconfigure(),
         }

@@ -19,6 +19,7 @@ impl Config {
     }
 }
 #[derive(Default, PartialEq)]
+// TODO: Maybe define this based on the system state? Seems like we're duplicating logic here
 /// Whether we are currently polling temperatures or not
 pub enum Status {
     #[default]
@@ -46,6 +47,7 @@ pub struct SDConfig {
     pub card_writable: bool,
     pub card_formatted: bool,
     pub free_space_bytes: u32,
+    pub safe_to_remove: bool,
 }
 impl Default for SDConfig {
     fn default() -> Self {
@@ -54,6 +56,7 @@ impl Default for SDConfig {
             card_detected: false,
             card_writable: false,
             card_formatted: false,
+            safe_to_remove: false,
             free_space_bytes: 0,
             filetype: Filetype::Csv,
             filename: [b'\0'; FILENAME_MAX_LEN],
