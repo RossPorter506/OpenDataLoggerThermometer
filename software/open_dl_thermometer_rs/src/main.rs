@@ -136,7 +136,7 @@ fn main() -> ! {
     
     // SPI
     let spi_bus = configure_spi(registers.SPI0, sdcard_pins.spi, &mut registers.RESETS, &clocks);
-    let mut sd_manager = crate::sd_card::SdCard::new(SDCardSPIDriver{spi_bus, cs: sdcard_pins.cs}, system_timer);
+    let mut sd_manager = crate::sd_card::SdManager::new(SDCardSPIDriver{spi_bus, cs: sdcard_pins.cs}, system_timer, sdcard_pins.extra);
 
     // USB
     let usb_bus = configure_usb_bus(registers.USBCTRL_REGS, registers.USBCTRL_DPRAM, &mut registers.RESETS, clocks.usb_clock);
@@ -188,7 +188,7 @@ fn main() -> ! {
             todo!();
         }
 
-        monitor_sdcard_state(sd_manager.get_card(), &mut sdcard_pins.extra, &mut config, &mut update_available, &clocks.peripheral_clock);
+        monitor_sdcard_state(&mut sd_manager.card, &mut sd_manager.extra_pins, &mut config, &mut update_available, &clocks.peripheral_clock);
 
         // Serial
         manage_serial_comms(&mut usb_device, &mut usb_serial, &mut serial_buffer);
