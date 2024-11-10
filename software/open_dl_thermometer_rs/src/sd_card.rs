@@ -6,7 +6,7 @@ use embedded_hal::digital::InputPin;
 pub struct SdManager {
     pub card: embedded_sdmmc::SdCard<crate::SDCardSPIDriver, Timer>,
     // pub ts: embedded_sdmmc::filesystem::Timestamp,
-    pub extra_pins: crate::pcb_mapping::SdCardExtraPins
+    pub extra_pins: crate::pcb_mapping::SdCardExtraPins,
 }
 
 impl SdManager {
@@ -22,5 +22,9 @@ impl SdManager {
 
     pub fn is_inserted(&mut self) -> bool {
         self.extra_pins.card_detect.is_low().unwrap()
+    }
+
+    pub fn release(self) -> (embedded_sdmmc::SdCard<crate::SDCardSPIDriver, Timer>, crate::SdCardExtraPins) {
+        (self.card, self.extra_pins)
     }
 }

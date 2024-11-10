@@ -2,6 +2,7 @@
 #![no_main]
 #![feature(variant_count)]
 use core::{cell::RefCell, sync::atomic::{AtomicU8,AtomicBool, Ordering}};
+use embedded_sdmmc::sdcard;
 use panic_halt as _;
 
 
@@ -19,6 +20,7 @@ use rp_pico::{
 };
 use embedded_hal::{digital::{InputPin, OutputPin}, spi::{ErrorType, SpiBus, SpiDevice}};
 use critical_section::Mutex;
+use sd_card::SdManager;
 use usb_device::{class_prelude::*, prelude::*};
 use usbd_serial::SerialPort;
 
@@ -136,7 +138,8 @@ fn main() -> ! {
     
     // SPI
     let spi_bus = configure_spi(registers.SPI0, sdcard_pins.spi, &mut registers.RESETS, &clocks);
-    let mut sd_manager = crate::sd_card::SdManager::new(SDCardSPIDriver{spi_bus, cs: sdcard_pins.cs}, system_timer, sdcard_pins.extra);
+    let mut sd_manager : Option<SdManager>; 
+    let mut is_inserted = false; // Whether the SD card is inserted
 
     // USB
     let usb_bus = configure_usb_bus(registers.USBCTRL_REGS, registers.USBCTRL_DPRAM, &mut registers.RESETS, clocks.usb_clock);
@@ -176,6 +179,17 @@ fn main() -> ! {
             _ => update_available, // no change
         };
 
+        // Check if card is detected and the card is not already inserted
+        if sdcard_pins.extra.card_detect.is_high().unwrap() && !is_inserted {
+            is_inserted = !is_inserted;
+            sd_manager = Some(crate::sd_card::SdManager::new(SDCardSPIDriver{spi_bus, cs: sdcard_pins.cs}, system_timer, sdcard_pins.extra));
+        } else if sdcard_pins.extra.card_detect.is_low().unwrap() && is_inserted {
+            is_inserted = !is_inserted;
+            let sdm = sd_manager.unwrap();
+            sdm.release();
+            sd_manager = None;
+        }
+
         // Deal with SD card
         if write_to_sd {
             // Is SD card full?
@@ -188,7 +202,11 @@ fn main() -> ! {
             todo!();
         }
 
-        monitor_sdcard_state(&mut sd_manager.card, &mut sd_manager.extra_pins, &mut config, &mut update_available, &clocks.peripheral_clock);
+        if is_inserted {
+            let sdm = &mut sd_manager.as_mut().unwrap();
+            // Check if the card is inserted or removed
+            monitor_sdcard_state(&mut sdm.card, &mut sdm.extra_pins, &mut config, &mut update_available, &clocks.peripheral_clock);
+        }
 
         // Serial
         manage_serial_comms(&mut usb_device, &mut usb_serial, &mut serial_buffer);
