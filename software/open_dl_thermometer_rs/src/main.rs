@@ -2,6 +2,7 @@
 #![no_main]
 #![feature(variant_count)]
 use core::{cell::RefCell, sync::atomic::{AtomicU8,AtomicBool, Ordering}};
+use embedded_sdmmc::TimeSource;
 use panic_halt as _;
 
 
@@ -95,6 +96,15 @@ impl SpiDevice for SDCardSPIDriver {
     }
 }
 
+impl TimeSource for rtcWrapper {
+    fn get_timestamp(&self) -> embedded_sdmmc::Timestamp {
+        let timestamp = self.rtc.now();
+        todo!()
+    }
+}
+struct rtcWrapper {
+    rtc: rp_pico::hal::rtc::RealTimeClock,
+}
 
 // Heap so we can use Vec, etc.. Try to use ArrayVec where possible though.
 use embedded_alloc::LlffHeap as Heap;
@@ -137,6 +147,9 @@ fn main() -> ! {
     // SPI
     let spi_bus = configure_spi(registers.SPI0, sdcard_pins.spi, &mut registers.RESETS, &clocks);
     let mut sd_manager = crate::sd_card::SdManager::new(SDCardSPIDriver{spi_bus, cs: sdcard_pins.cs}, system_timer, sdcard_pins.extra);
+
+    // RTC
+    let rtc = rp_pico::hal::rtc::RealTimeClock::new(registers.RTC, clocks.rtc_clock, &mut registers.RESETS, rp_pico::hal::rtc::DateTime{ year: 2024, month: 1, day: 1, day_of_week: rp_pico::hal::rtc::DayOfWeek::Monday, hour: 1, minute: 1, second: 1 }).unwrap();
 
     // USB
     let usb_bus = configure_usb_bus(registers.USBCTRL_REGS, registers.USBCTRL_DPRAM, &mut registers.RESETS, clocks.usb_clock);
