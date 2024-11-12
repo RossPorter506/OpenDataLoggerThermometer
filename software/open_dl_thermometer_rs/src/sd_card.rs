@@ -10,6 +10,8 @@ pub struct SdManager {
 }
 
 impl SdManager {
+    pub fn init() {
+    }
     pub fn new(spi: crate::SDCardSPIDriver, delay: Timer, extra_pins: crate::pcb_mapping::SdCardExtraPins) -> Self {
         let new_card = embedded_sdmmc::SdCard::new(spi, delay);
         // let ts: embedded_sdmmc::filesystem::Timestamp = TimeSource.get_timestamp();
