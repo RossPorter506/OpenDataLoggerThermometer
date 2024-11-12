@@ -52,6 +52,8 @@ use state_machine::{
     ViewTemperaturesSelectables as ViewTemp
 };
 
+extern crate alloc;
+
 /* TODO:
 Display driver
 SD card driver
@@ -143,6 +145,7 @@ fn main() -> ! {
 
     // System configuration
     let mut config = Config::new();
+    let str = alloc::string::String::from_utf8_lossy(&config.sd.filename);
 
     // Timers
     let (mut system_timer, mut sample_rate_timer, mut sensors_ready_timer) = configure_timers(registers.PWM, registers.TIMER, &mut registers.RESETS, &clocks);

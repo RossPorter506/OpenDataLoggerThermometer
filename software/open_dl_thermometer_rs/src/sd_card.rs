@@ -4,6 +4,7 @@ use rp_pico::hal::Timer;
 pub struct SdManager {
     pub extra_pins: crate::pcb_mapping::SdCardExtraPins,
     pub vmgr: VolumeManager<embedded_sdmmc::SdCard<crate::SDCardSPIDriver, Timer>, crate::RtcWrapper>,
+    pub file: Option<embedded_sdmmc::filesystem::RawFile>,
 }
 
 impl SdManager {
@@ -14,6 +15,7 @@ impl SdManager {
             // ts: ts,
             extra_pins,
             vmgr: VolumeManager::new(new_card, rtc_wrapper),
+            file: None,
         }
     }
 
@@ -30,5 +32,22 @@ impl SdManager {
             }
         }
         false
+    }
+
+    pub fn open_file(&mut self, name: &str) {
+        for i in 0..=4 {
+            let volume = self.vmgr.open_raw_volume(VolumeIdx(i));
+            let root_dir = self.vmgr.open_root_dir(volume.unwrap());
+            let file = self.vmgr.open_file_in_dir(root_dir.unwrap(), name, Mode::ReadWriteCreate);
+            match file {
+                Ok(f) => {
+                    self.file = Some(f);
+                    return;
+                }
+                Err(_) => {
+                    continue;
+                }
+            }
+        }
     }
 }
