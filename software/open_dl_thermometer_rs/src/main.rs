@@ -132,7 +132,7 @@ fn main() -> ! {
     let mut registers = pac::Peripherals::take().unwrap();
     
     // GPIO pin groups
-    let (temp_power, temp_sense, mut sdcard_pins, display_pins) = collect_pins(registers.SIO, registers.IO_BANK0, registers.PADS_BANK0, &mut registers.RESETS);
+    let (temp_power, temp_sense, sdcard_pins, display_pins) = collect_pins(registers.SIO, registers.IO_BANK0, registers.PADS_BANK0, &mut registers.RESETS);
 
     // PIO
     let pio_state_machines = lmt01::configure_pios_for_lmt01(registers.PIO0, registers.PIO1, &mut registers.RESETS, &temp_sense);
@@ -151,13 +151,16 @@ fn main() -> ! {
     let mut i2c = configure_i2c(registers.I2C0, display_pins, &mut registers.RESETS, &clocks);
     let mut display_manager = IncrementalDisplayWriter::new(&config, &mut i2c);
     display_manager.load_custom_chars(&mut system_timer);
-    
+
     // SPI
     let spi_bus = configure_spi(registers.SPI0, sdcard_pins.spi, &mut registers.RESETS, &clocks);
-    let mut sd_manager = crate::sd_card::SdManager::new(SDCardSPIDriver{spi_bus, cs: sdcard_pins.cs}, system_timer, sdcard_pins.extra); // SD card manager
 
     // RTC
     let rtc = rp_pico::hal::rtc::RealTimeClock::new(registers.RTC, clocks.rtc_clock, &mut registers.RESETS, rp_pico::hal::rtc::DateTime{ year: 2024, month: 1, day: 1, day_of_week: rp_pico::hal::rtc::DayOfWeek::Monday, hour: 1, minute: 1, second: 1 }).unwrap();
+    let rtc_wrapper = RtcWrapper{rtc};
+
+    // SD card manager
+    let mut sd_manager = crate::sd_card::SdManager::new(SDCardSPIDriver{spi_bus, cs: sdcard_pins.cs}, system_timer, sdcard_pins.extra, rtc_wrapper);
 
     // USB
     let usb_bus = configure_usb_bus(registers.USBCTRL_REGS, registers.USBCTRL_DPRAM, &mut registers.RESETS, clocks.usb_clock);
@@ -210,7 +213,7 @@ fn main() -> ! {
         }
         
         // Check if the card is inserted or removed
-        monitor_sdcard_state(&mut sd_manager.card, &mut sd_manager.extra_pins, &mut config, &mut update_available, &clocks.peripheral_clock );
+        monitor_sdcard_state(&mut sd_manager, &mut config, &mut update_available, &clocks.peripheral_clock);
 
         // Serial
         manage_serial_comms(&mut usb_device, &mut usb_serial, &mut serial_buffer);
@@ -229,8 +232,8 @@ fn main() -> ! {
 }
 
 /// Listen for an SD card being inserted or removed and initialise, if required
-fn monitor_sdcard_state(sdcard: &mut embedded_sdmmc::SdCard<SDCardSPIDriver, Timer>, sdcard_extra_pins: &mut SdCardExtraPins, config: &mut Config, update_available: &mut Option<UpdateReason>, peripheral_clock: &PeripheralClock) {
-    let sd_present = sdcard_extra_pins.card_detect.is_low().unwrap();
+fn monitor_sdcard_state(sd_manager: &mut crate::SdManager, config: &mut Config, update_available: &mut Option<UpdateReason>, peripheral_clock: &PeripheralClock) {
+    let sd_present = sd_manager.extra_pins.card_detect.is_low().unwrap();
     if config.sd.card_detected && !sd_present { // SD card removed
         config.sd.card_detected = false;
         config.sd.card_writable = false;
@@ -253,14 +256,14 @@ fn monitor_sdcard_state(sdcard: &mut embedded_sdmmc::SdCard<SDCardSPIDriver, Tim
         // Ensure SPI bus is clocked at 400kHz for initialisation, then
         // send at least 74 clock pulses (without chip select) to wake up card,
         // then reconfigure SPI back to 25MHz
-        sdcard.spi(|driver| {
+        sd_manager.vmgr.device().spi(|driver| {
             driver.spi_bus.set_baudrate(peripheral_clock.freq(), 400.kHz());
             let _ = driver.spi_bus.write(&[0;10]); 
             driver.spi_bus.set_baudrate(peripheral_clock.freq(), 25.MHz())
         });
         config.sd.card_detected = true;
-        config.sd.card_writable = sdcard_extra_pins.write_protect.is_low().unwrap();
-        config.sd.card_formatted = todo!();
+        config.sd.card_writable = sd_manager.extra_pins.write_protect.is_low().unwrap();
+        config.sd.card_formatted = crate::SdManager::is_card_formatted(&mut sd_manager.vmgr);
         config.sd.free_space_bytes = todo!();
         todo!();
     }
