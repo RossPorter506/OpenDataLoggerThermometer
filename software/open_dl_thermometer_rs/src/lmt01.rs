@@ -69,7 +69,7 @@ pub const CHARS_PER_READING: usize = 8;
 // Does this fn belong here?
 /// Input: -99_999 to 999_999 mC
 ///
-/// Output: `[u8;8]`, e.g. "-50.012C", "002.901C", "234.750C"
+/// Output: `[u8;8]`, e.g. "-50.012C", "  2.901C", "234.750C"
 /// 
 /// If input is `None` output is "        "
 pub fn temp_to_string(tempr: Option<i32>) -> [u8; CHARS_PER_READING] {

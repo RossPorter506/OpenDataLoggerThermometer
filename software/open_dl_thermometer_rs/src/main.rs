@@ -5,8 +5,6 @@ use core::{cell::RefCell, sync::atomic::{AtomicU8,AtomicBool, Ordering}};
 use embedded_sdmmc::TimeSource;
 use panic_halt as _;
 
-
-
 use rp_pico::{
     entry,
     hal::{
@@ -145,7 +143,6 @@ fn main() -> ! {
 
     // System configuration
     let mut config = Config::new();
-    let str = alloc::string::String::from_utf8_lossy(&config.sd.filename);
 
     // Timers
     let (mut system_timer, mut sample_rate_timer, mut sensors_ready_timer) = configure_timers(registers.PWM, registers.TIMER, &mut registers.RESETS, &clocks);
@@ -169,9 +166,6 @@ fn main() -> ! {
     let usb_bus = configure_usb_bus(registers.USBCTRL_REGS, registers.USBCTRL_DPRAM, &mut registers.RESETS, clocks.usb_clock);
     let (mut usb_serial, mut usb_device) = configure_usb(&usb_bus);
 
-    // Whether we are going to update state and redraw screen
-    let mut update_available: Option<UpdateReason>;
-
     // Write controls for SD card. false when transmissions are complete, for now
     let mut write_to_sd = false;
 
@@ -184,8 +178,10 @@ fn main() -> ! {
     config.enabled_channels = autodetect_sensor_channels(&mut system_timer, &mut temp_sensors);
 
     loop {
-        update_available = None;
+        // Whether we are going to update state and redraw screen
+        let mut update_available: Option<UpdateReason> = None;
 
+        // Monitor sensors
         if SENSOR_READINGS_AVAILABLE.load(Ordering::Relaxed) {
             read_sensors(&mut temp_sensors, &mut sensor_values, &mut serial_buffer, &mut spi_buffer, &config, &mut sample_rate_timer, &mut write_to_sd);
             update_available = Some(UpdateReason::NewSensorValues);
@@ -324,7 +320,7 @@ fn manage_serial_comms(usb_device: &mut UsbDevice<UsbBus>, usb_serial: &mut Seri
 
 /// Figure out what to do when the select button is pressed, based on the current state and what is currently selected
 /// 
-/// This function deals exclusively with state machine outputs. Changes to the system state are calculated in `state_machine::next_state()``
+/// This function deals exclusively with state machine outputs. Changes to the system state are calculated in `state_machine::next_state()`
 fn service_button_event(config: &mut Config, update_reason: &UpdateReason) {
     if *update_reason != UpdateReason::SelectButton {
         return;

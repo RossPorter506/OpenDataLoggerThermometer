@@ -56,7 +56,7 @@ impl TempPowerPins {
     /// Turns the LMT01 sensors on
     pub fn turn_on(&mut self) {
         while let Some(p_in) = self.in_pins.pop() {
-            let mut p_out: DynPinOutput = p_in.try_into_function().unwrap_or_else(|_| panic!()); 
+            let mut p_out: DynPinOutput = p_in.try_into_function().unwrap_or_else(|_| unreachable!()); 
             let _ = p_out.set_high();
             self.out_pins.push(p_out);
         }
@@ -64,7 +64,7 @@ impl TempPowerPins {
     /// Turns the LMT01 sensors off
     pub fn turn_off(&mut self) {
         while let Some(p_out) = self.out_pins.pop() {
-            let p_in: DynPinInput = p_out.try_into_function().unwrap_or_else(|_| panic!()); 
+            let p_in: DynPinInput = p_out.try_into_function().unwrap_or_else(|_| unreachable!()); 
             self.in_pins.push(p_in);
         }
     }
