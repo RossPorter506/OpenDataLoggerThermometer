@@ -19,35 +19,38 @@ impl SdManager {
         }
     }
 
-    pub fn is_card_formatted(vol_mgr: &mut VolumeManager<embedded_sdmmc::SdCard<crate::SDCardSPIDriver, Timer>, crate::RtcWrapper>,) -> bool {
+    pub fn is_card_formatted(&mut self) -> bool {
         for i in 0..=4 {
-            let volume = vol_mgr.open_volume(VolumeIdx(i));
-            match volume {
-                Ok(_) => {
-                    return true;
-                }
-                Err(_) => {
-                    continue;
-                }
-            }
+            let volume = self.vmgr.open_volume(VolumeIdx(i));
+            if volume.is_ok() {return true}
         }
         false
     }
 
     pub fn open_file(&mut self, name: &str) {
         for i in 0..=4 {
-            let volume = self.vmgr.open_raw_volume(VolumeIdx(i));
-            let root_dir = self.vmgr.open_root_dir(volume.unwrap());
-            let file = self.vmgr.open_file_in_dir(root_dir.unwrap(), name, Mode::ReadWriteCreate);
-            match file {
-                Ok(f) => {
-                    self.file = Some(f);
-                    return;
-                }
-                Err(_) => {
-                    continue;
-                }
-            }
+            let Ok(volume) = self.vmgr.open_raw_volume(VolumeIdx(i)) else {continue};
+            let Ok(root_dir) = self.vmgr.open_root_dir(volume) else {continue};
+            let Ok(file) = self.vmgr.open_file_in_dir(root_dir, name, Mode::ReadWriteCreate) else {continue};
+            self.file = Some(file);
+            return;
         }
+    }
+
+    pub fn is_file_open(&mut self, filename: &str) -> bool { 
+        todo!()
+    }
+
+    pub fn close_file(&mut self) {
+        todo!()
+    }
+
+    pub fn write_bytes(&mut self, bytes: &[u8]) {
+        todo!()
+    }
+
+    pub fn is_safe_to_remove(&self) -> bool {
+        // Not sure if the library will have support for this, may have to query the SD card directly
+        todo!()
     }
 }

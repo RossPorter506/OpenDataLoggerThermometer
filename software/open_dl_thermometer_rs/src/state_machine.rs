@@ -2,7 +2,7 @@
 
 /// Encode both the state and what things on the screen can be selected into one item
 /// This ensures that there can't be any mismatches between states and selected items
-#[derive(Copy, Clone)]
+#[derive(Copy, Clone, PartialEq)]
 pub enum State {
     /// Main menu
     Mainmenu(MainmenuSelectables),
@@ -64,7 +64,7 @@ use num_traits::FromPrimitive;
 // Macro to generate selectables in a state
 macro_rules! create_selectables {
     ($name:ident, [$first_variant:ident, $($variant:ident),*]) => {
-        #[derive(Default, FromPrimitive, Copy, Clone)]
+        #[derive(Default, FromPrimitive, Copy, Clone, PartialEq)]
         pub enum $name {
             #[default]
             $first_variant = 0,
@@ -80,7 +80,7 @@ macro_rules! create_selectables {
         }
     };
     ($name:ident, []) => {
-        #[derive(Default, Copy, Clone)]
+        #[derive(Default, Copy, Clone, PartialEq)]
         pub enum $name {
             #[default]
             None
@@ -164,7 +164,9 @@ pub fn next_state(config: &mut crate::config::Config, update_reason: &UpdateReas
             }
         }
 
-        ConfigSDStatus(ConSDStat::Next)         => ConfigSDFilename(d::default()),
+        ConfigSDStatus(ConSDStat::Next)         => {
+            if config.sd.is_ready() { ConfigSDFilename(d::default()) } 
+            else { ConfigSDStatus(d::default()) }},
 
         ConfigSDFilename(ConSDName::Next)       => ConfigChannelSelect(d::default()),
 

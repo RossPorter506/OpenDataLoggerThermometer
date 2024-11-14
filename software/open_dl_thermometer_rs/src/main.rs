@@ -24,6 +24,7 @@ use usbd_serial::SerialPort;
 
 use arrayvec::ArrayVec;
 use atomic_enum::atomic_enum;
+use alloc::string::String;
 
 mod config; use config::{Config, Status::*};
 mod constants; use constants::*;
@@ -172,7 +173,7 @@ fn main() -> ! {
     // Buffers
     let mut sensor_values = [[0u8; CHARS_PER_READING]; NUM_SENSOR_CHANNELS]; // Most recent sensor values, to be written to display, serial, or SD card
     let mut serial_buffer = ArrayVec::<u8, {CHARS_PER_READING*NUM_SENSOR_CHANNELS}>::new(); // We will write to serial as we receive, so buffer need only be big enough for one lot of readings. ASCII.
-    let mut spi_buffer = ArrayVec::<u8, {CHARS_PER_READING*NUM_SENSOR_CHANNELS*16 /*Arbitrary size*/}>::new(); // We store values until we're some multiple of the SD card block size. ASCII.
+    let mut spi_buffer = ArrayVec::<u8, {CHARS_PER_READING*NUM_SENSOR_CHANNELS*16/* 16 is arbitrary */}>::new(); // We store values until we're some multiple of the SD card block size. ASCII.
 
     // Autodetect any connected sensors
     config.enabled_channels = temp_sensors.autodetect_sensor_channels(&mut system_timer);
@@ -207,7 +208,7 @@ fn main() -> ! {
             //else {
             //  if spi_tx_buffer.has_room() {spi_tx_buffer.push(sd_buffer.pop())}
             //}
-
+            sd_manager.write_bytes(&spi_buffer);
             todo!();
         }
         
@@ -262,9 +263,12 @@ fn monitor_sdcard_state(sd_manager: &mut crate::SdManager, config: &mut Config, 
         });
         config.sd.card_detected = true;
         config.sd.card_writable = sd_manager.extra_pins.write_protect.is_low().unwrap();
-        config.sd.card_formatted = crate::SdManager::is_card_formatted(&mut sd_manager.vmgr);
+        config.sd.card_formatted = sd_manager.is_card_formatted();
         config.sd.free_space_bytes = todo!();
         todo!();
+    }
+    if config.status == SamplingAndDatalogging && !sd_manager.is_file_open(&String::from_utf8_lossy(&config.sd.filename)) {
+        sd_manager.open_file(&String::from_utf8_lossy(&config.sd.filename));
     }
 }
 

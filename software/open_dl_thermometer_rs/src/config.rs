@@ -37,7 +37,7 @@ pub struct SerialConfig {
     pub enabled: bool,
 }
 
-const FILENAME_MAX_LEN: usize = 10;
+pub const FILENAME_MAX_LEN: usize = 10;
 /// SD card configuration info
 pub struct SDConfig {
     pub enabled: bool,
@@ -63,6 +63,12 @@ impl Default for SDConfig {
         }
     }
 }
+impl SDConfig {
+    pub fn is_ready(&self) -> bool {
+        !self.enabled || (self.card_detected && self.card_writable && self.card_formatted)
+    }
+}
+
 /// SD card file type info
 pub enum Filetype {
     Csv, // comma separated
