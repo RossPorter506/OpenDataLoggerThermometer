@@ -175,7 +175,7 @@ fn main() -> ! {
     let mut spi_buffer = ArrayVec::<u8, {CHARS_PER_READING*NUM_SENSOR_CHANNELS*16 /*Arbitrary size*/}>::new(); // We store values until we're some multiple of the SD card block size. ASCII.
 
     // Autodetect any connected sensors
-    config.enabled_channels = autodetect_sensor_channels(&mut system_timer, &mut temp_sensors);
+    config.enabled_channels = temp_sensors.autodetect_sensor_channels(&mut system_timer);
 
     loop {
         // Whether we are going to update state and redraw screen
@@ -276,8 +276,8 @@ fn read_sensors(temp_sensors: &mut TempSensors,
         config: &Config, sample_rate_timer: &mut Slice<Pwm0, FreeRunning>,
         write_to_sd: &mut bool) {
 
-    *sensor_values = temp_sensors.read_temperatures().map(lmt01::temp_to_string);
-    temp_sensors.pios.pause_all();
+    *sensor_values = temp_sensors.read_temperatures_and_end_conversion().map(lmt01::temp_to_string);
+    
     let flattened_values = sensor_values.iter().flatten().copied(); // SD card and serial (right now...) don't care about char grouping, so flatten [[u8; _]; _] into [u8; _]
     if config.sd.enabled {
         spi_buffer.extend(flattened_values.clone());
@@ -294,10 +294,7 @@ fn read_sensors(temp_sensors: &mut TempSensors,
 
 /// If it's time to get another reading then restart the LMT01 sensors.
 fn start_next_sensor_reading(temp_sensors: &mut TempSensors, sensors_ready_timer: &mut Alarm0) {
-    temp_sensors.power.turn_off();
-    // May need a delay here
-    temp_sensors.power.turn_on();
-    temp_sensors.pios.restart_all();
+    temp_sensors.begin_conversion();
     sensors_ready_timer.clear_interrupt(); // Clear the interrupt flag for the 105ms timer. Should be done in the TIMER0 interrupt, but this is good enough 
     let _ = sensors_ready_timer.schedule((lmt01::SENSOR_MAX_TIME_FOR_READING_MS+1).millis());
     READY_TO_START_NEXT_READING.store(false, Ordering::Relaxed);
@@ -511,22 +508,6 @@ fn configure_button_pins(select: pcb_mapping::SelectButton, next: pcb_mapping::N
     unsafe {
         pac::NVIC::unmask(pac::Interrupt::IO_IRQ_BANK0);
     }
-}
-
-/// Try to get a reading from all sensor channels. If the channel returns `None` then `false`, otherwise `true`.
-fn autodetect_sensor_channels(delay: &mut impl embedded_hal::delay::DelayNs, temp_sensors: &mut TempSensors) -> [bool; NUM_SENSOR_CHANNELS] {
-    temp_sensors.power.turn_off();
-    // May need a delay here
-    temp_sensors.power.turn_on();
-    temp_sensors.pios.restart_all();
-
-    delay.delay_ms(lmt01::SENSOR_MAX_TIME_FOR_READING_MS+1);
-    let connected = temp_sensors.read_temperatures().map(|opt| opt.is_some());
-
-    temp_sensors.pios.pause_all();
-    temp_sensors.power.turn_off();
-
-    connected
 }
 
 const BITS_PER_SPI_PACKET: u8 = 8;

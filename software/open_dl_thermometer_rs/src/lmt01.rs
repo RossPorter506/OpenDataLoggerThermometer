@@ -1,10 +1,9 @@
 extern crate alloc;
-use alloc::boxed::Box;
 use rp_pico::{hal::pio::{InstalledProgram, PIOExt, UninitStateMachine}, pac};
 
-use crate::{constants::*, pcb_mapping::{TempPowerPins, TempSensePins}, pio::AllPioStateMachines};
+use crate::{constants::*, pcb_mapping::{TempPowerPins, TempSensePins}, pio::{AllPioStateMachines, PioStateMachine}};
 
-/// Maximum time required for an LMT01 to communicate one sensor reading
+/// Maximum time required for an LMT01 to convert and communicate one sensor reading
 pub const SENSOR_MAX_TIME_FOR_READING_MS: u32 = 104;
 
 /// (Temperature in milli-celcius, pulse counts)
@@ -33,9 +32,9 @@ const LMT01_LUT: [(i32, u32); LUT_SIZE] = [
 
 /// Top-level struct for controlling the LMT01 temperature sensors
 pub struct TempSensors {
-    pub power: TempPowerPins,
-    pub _sense: TempSensePins,
-    pub pios: AllPioStateMachines,
+    power: TempPowerPins,
+    _sense: TempSensePins,
+    pios: AllPioStateMachines,
     lut: LUTInterpolator,
 }
 impl TempSensors {
@@ -43,17 +42,23 @@ impl TempSensors {
         let lut = LUTInterpolator::new(LMT01_LUT);
         Self {power, _sense, pios, lut}
     }
-    /// Read temperatures from sensors. Values returned in milli-celcius.
-    pub fn read_temperatures(&mut self) -> [Option<i32>; NUM_SENSOR_CHANNELS] {
-        let counts = self.read_counts();
+    /// Try to read temperatures from all sensors. Values returned in milli-celcius.
+    /// 
+    /// Returns `None` if the sensor did not respond. Powers off sensors and pauses PIOs afterwards.
+    pub fn read_temperatures_and_end_conversion(&mut self) -> [Option<i32>; NUM_SENSOR_CHANNELS] {
+        let counts = self.read_counts_and_end_conversion();
+        
         counts.map(|opt| opt.map(|c| self.conv_count_to_temp_lut(c)))
     }
-    /// Read counts from sensors.
-    fn read_counts(&mut self) -> [Option<u32>; NUM_SENSOR_CHANNELS] {
+    /// Try to read counts from all sensors. Powers off sensors and pauses PIOs afterwards.
+    fn read_counts_and_end_conversion(&mut self) -> [Option<u32>; NUM_SENSOR_CHANNELS] {
         self.pios.write_all(0);
-
         // The pulse counter counts downwards from 0xFFFF_FFFF, so invert the bits to get the actual number of pulses
-        self.pios.read_all().map(|opt| opt.map(|c| !c))
+        let vals = self.pios.read_all();
+        self.pios.pause_all();
+        self.power.turn_off();
+        
+        vals.map(|opt| opt.map(|c| !c))
     }
     
     /// Input: 26-3218 counts
@@ -63,15 +68,36 @@ impl TempSensors {
         let pulse_count = pulse_count.clamp(26, 3218);
         self.lut.interpolate(pulse_count)
     }
+
+    /// Enables the LMT01 sensors and ensures the PIOs are prepared to read the result
+    pub fn begin_conversion(&mut self) {
+        self.power.turn_on();
+        self.pios.restart_all();
+    }
+
+    /// Try to get a reading from all sensor channels. If a channel does not send any pulses then `false`, otherwise `true`.
+    /// 
+    /// Blocks for `SENSOR_MAX_TIME_FOR_READING_MS`. Turns off sensors and pauses PIOs afterwards.
+    pub fn autodetect_sensor_channels(&mut self, delay: &mut impl embedded_hal::delay::DelayNs) -> [bool; NUM_SENSOR_CHANNELS] {
+        self.begin_conversion();
+
+        delay.delay_ms(SENSOR_MAX_TIME_FOR_READING_MS+1);
+        let connected = self.read_counts_and_end_conversion().map(|opt| opt.is_some());
+
+        self.pios.pause_all();
+        self.power.turn_off();
+
+        connected
+    }
 }
 
 pub const CHARS_PER_READING: usize = 8;
 // Does this fn belong here?
 /// Input: -99_999 to 999_999 mC
 ///
-/// Output: `[u8;8]`, e.g. "-50.012C", "  2.901C", "234.750C"
+/// Output: `[u8;8]`, e.g. `b"-50.012C"`, `b"  2.901C"`, `b"234.750C"`
 /// 
-/// If input is `None` output is "        "
+/// If input is `None` output is `b"        "`
 pub fn temp_to_string(tempr: Option<i32>) -> [u8; CHARS_PER_READING] {
     let mut out = [0u8; CHARS_PER_READING];
     if let Some(tempr) = tempr {
@@ -178,7 +204,7 @@ pub fn configure_pios_for_lmt01(pio0: pac::PIO0, pio1: pac::PIO1, resets: &mut p
     let p1sm2 = configure_sm_for_lmt01(p1sm2, sense_pins.vn7.id().num, unsafe{installed1.share()});
     let p1sm3 = configure_sm_for_lmt01(p1sm3, sense_pins.vn8.id().num, unsafe{installed1.share()});
 
-    AllPioStateMachines {state_machines: [Box::new(p0sm0), Box::new(p0sm1), Box::new(p0sm2), Box::new(p0sm3), Box::new(p1sm0), Box::new(p1sm1), Box::new(p1sm2), Box::new(p1sm3)]}
+    AllPioStateMachines::new(p0sm0, p0sm1, p0sm2, p0sm3, p1sm0, p1sm1, p1sm2, p1sm3)
 }
 
 fn configure_sm_for_lmt01<PIO:rp_pico::hal::pio::PIOExt, SM: rp_pico::hal::pio::StateMachineIndex>(uninit_sm: UninitStateMachine<(PIO,SM)>, id_num: u8, prog: InstalledProgram<PIO>) -> crate::pio::PioStateMachine<PIO,SM> {
@@ -187,7 +213,5 @@ fn configure_sm_for_lmt01<PIO:rp_pico::hal::pio::PIOExt, SM: rp_pico::hal::pio::
         .build(uninit_sm);
     // The GPIO pin needs to be configured as an input
     state_machine.set_pindirs([(id_num, rp_pico::hal::pio::PinDir::Input)]);
-    let state_machine_on = None;
-    let state_machine_off = Some(state_machine);
-    crate::pio::PioStateMachine{state_machine_on, state_machine_off, rx, tx, state: crate::pio::PioState::Stopped}
+    PioStateMachine::new(state_machine, rx, tx)
 }
