@@ -131,7 +131,7 @@ fn configure_heap() {
 fn main() -> ! {
     configure_heap();
     // Take ownership of peripherals
-    let mut registers = pac::Peripherals::take().unwrap();
+    let Some(mut registers) = pac::Peripherals::take() else { unreachable!() };
     
     // GPIO pin groups
     let (temp_power, temp_sense, sdcard_pins, display_pins) = collect_pins(registers.SIO, registers.IO_BANK0, registers.PADS_BANK0, &mut registers.RESETS);
@@ -243,7 +243,7 @@ fn main() -> ! {
 
 /// Listen for an SD card being inserted or removed and initialise, if required
 fn monitor_sdcard_state(sd_manager: &mut crate::SdManager, config: &mut Config, update_available: &mut Option<UpdateReason>, peripheral_clock: &PeripheralClock) {
-    let sd_present = sd_manager.extra_pins.card_detect.is_low().unwrap();
+    let Ok(sd_present) = sd_manager.extra_pins.card_detect.is_low();
     if config.sd.card_detected && !sd_present { // SD card removed
         config.sd.card_detected = false;
         config.sd.card_writable = false;
@@ -272,7 +272,7 @@ fn monitor_sdcard_state(sd_manager: &mut crate::SdManager, config: &mut Config, 
             driver.spi_bus.set_baudrate(peripheral_clock.freq(), 25.MHz())
         });
         config.sd.card_detected = true;
-        config.sd.card_writable = sd_manager.extra_pins.write_protect.is_low().unwrap();
+        Ok(config.sd.card_writable) = sd_manager.extra_pins.write_protect.is_low();
         config.sd.card_formatted = sd_manager.is_card_formatted();
         config.sd.free_space_bytes = todo!();
         todo!();
@@ -319,7 +319,8 @@ fn manage_serial_comms(usb_device: &mut UsbDevice<UsbBus>, serial_buffer: &mut A
     // We don't care what gets sent to us, but we need to poll anyway to stay USB compliant
     // Try to send everything we have
     critical_section::with(|cs| {
-        if !serial_buffer.is_empty() && usb_device.poll(&mut [&mut serial::USB_SERIAL.take(cs).unwrap()]) {
+        let Some(mut serial) = serial::USB_SERIAL.take(cs) else { unreachable!() };
+        if !serial_buffer.is_empty() && usb_device.poll(&mut [&mut serial]) {
             use serial::UsbSerialPrintError::*;
             match serial::nonblocking_print(serial_buffer.as_slice()) {
                 // Remove whatever was successfully sent from our buffer
@@ -568,7 +569,7 @@ fn configure_timers(pwm: PWM, timer: TIMER, resets: &mut RESETS, clocks: &Clocks
     let mut system_timer = rp_pico::hal::Timer::new(timer, resets, clocks);
 
     // We use alarm 0 used to tell us when we can retrieve a value from the LMT01's. 
-    let mut sensors_ready_timer = system_timer.alarm_0().unwrap();
+    let Some(mut sensors_ready_timer) = system_timer.alarm_0() else { unreachable!() };
     sensors_ready_timer.enable_interrupt();
 
     (system_timer, sample_rate_timer, sensors_ready_timer)

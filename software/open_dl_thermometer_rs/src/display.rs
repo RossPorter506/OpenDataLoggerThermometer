@@ -27,7 +27,7 @@ impl<'a, T:rp_pico::hal::i2c::I2cDevice> IncrementalDisplayWriter<'a, T> {
     pub fn incremental_update(&mut self, delay: &mut impl liquid_crystal::DelayNs) -> bool {
         if let Some((row,col)) = self.next_pos {
             let next_u8 = self.screen[row][col];
-            self.driver.write(delay, liquid_crystal::Text(core::str::from_utf8(&[next_u8]).unwrap()));
+            self.driver.write(delay, liquid_crystal::Text(core::str::from_utf8(&[next_u8]).unwrap_or("#")));
             self.next_pos = match (row, col) {
                 (SCREEN_MAX_ROW, SCREEN_MAX_COL) => None,               // Done
                 (_             , SCREEN_MAX_COL) => Some((row+1, 0)),   // Next row

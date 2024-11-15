@@ -56,7 +56,7 @@ fn blocking_print<'a>(str: impl Into<&'a [u8]>) -> Result<(), UsbSerialPrintErro
 pub fn nonblocking_print<'a>(str: impl Into<&'a [u8]>) -> Result<(), UsbSerialPrintError>{
     let buf: &[u8] = str.into();
     critical_section::with(|cs| {
-        let mut serial = USB_SERIAL.take(cs).unwrap();
+        let Some(mut serial) = USB_SERIAL.take(cs) else {return Err(UsbSerialPrintError::OtherError(UsbError::InvalidState))};
         match serial.write(buf) {
             Ok(len) if len == buf.len() => Ok(()), 
             Ok(len)                     => Err(UsbSerialPrintError::WouldBlock(len)),
