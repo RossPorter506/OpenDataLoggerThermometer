@@ -33,6 +33,7 @@ use pcb_mapping::{ButtonPins, DisplayPins, DisplayScl, DisplaySda, SdCardCs, SdC
 mod lmt01; use lmt01::{TempSensors, CHARS_PER_READING};
 mod display; use display::IncrementalDisplayWriter;
 mod sd_card;
+mod serial;
 mod pio;
 mod state_machine;
 use state_machine::{
@@ -164,8 +165,15 @@ fn main() -> ! {
     let mut sd_manager = crate::sd_card::SdManager::new(SDCardSPIDriver{spi_bus, cs: sdcard_pins.cs}, system_timer, sdcard_pins.extra, rtc_wrapper);
 
     // USB
+    // WARNING: USB_SERIAL relies on usb_bus never being consumed. usb_bus MUST continue to be in scope for the lifetime of the program.
     let usb_bus = configure_usb_bus(registers.USBCTRL_REGS, registers.USBCTRL_DPRAM, &mut registers.RESETS, clocks.usb_clock);
-    let (mut usb_serial, mut usb_device) = configure_usb(&usb_bus);
+
+    // Upgrade the lifetime of the USB bus reference to static so we can store USB_SERIAL in a static variable and print anywhere.
+    // DO NOT DO THIS unless you understand exactly what this entails.
+    // Safety: main never returns, so usb_bus (and thus our reference to it) is effectively static.
+    // We are single-threaded so no references to the bus could outlive this thread. We also panic-abort, so no stack unwinding can occur.
+    let static_usb_bus_ref: &'static UsbBusAllocator<UsbBus> = unsafe{ core::mem::transmute(&usb_bus) }; 
+    let mut usb_device = configure_usb(static_usb_bus_ref);
 
     // Write controls for SD card. false when transmissions are complete, for now
     let mut write_to_sd = false;
@@ -177,6 +185,8 @@ fn main() -> ! {
 
     // Autodetect any connected sensors
     config.enabled_channels = temp_sensors.autodetect_sensor_channels(&mut system_timer);
+
+    println!("Initialisation complete.");
 
     loop {
         // Whether we are going to update state and redraw screen
@@ -216,7 +226,7 @@ fn main() -> ! {
         monitor_sdcard_state(&mut sd_manager, &mut config, &mut update_available, &clocks.peripheral_clock);
 
         // Serial
-        manage_serial_comms(&mut usb_device, &mut usb_serial, &mut serial_buffer);
+        manage_serial_comms(&mut usb_device, &mut serial_buffer);
 
         // Service events and update available state, if required
         if let Some(update_reason) = update_available {
@@ -305,18 +315,20 @@ fn start_next_sensor_reading(temp_sensors: &mut TempSensors, sensors_ready_timer
 }
 
 /// Try to send data over serial.
-fn manage_serial_comms(usb_device: &mut UsbDevice<UsbBus>, usb_serial: &mut SerialPort<UsbBus>, serial_buffer: &mut ArrayVec::<u8, {CHARS_PER_READING*NUM_SENSOR_CHANNELS}>) {
-    if !serial_buffer.is_empty() && usb_device.poll(&mut [usb_serial]) {
-        // We don't care what gets sent to us, but we need to poll anyway to stay USB compliant
-        // Try to send everything we have
-        match usb_serial.write(serial_buffer.as_slice()) {
-            // Remove whatever was successfully sent from our buffer
-            Ok(len) => { serial_buffer.drain(0..len); }
-            // Err(WouldBlock) implies buffer is full.
-            Err(UsbError::WouldBlock) => (),
-            Err(a) => panic!("{a:?}"),
-        };
-    }
+fn manage_serial_comms(usb_device: &mut UsbDevice<UsbBus>, serial_buffer: &mut ArrayVec::<u8, {CHARS_PER_READING*NUM_SENSOR_CHANNELS}>) {
+    // We don't care what gets sent to us, but we need to poll anyway to stay USB compliant
+    // Try to send everything we have
+    critical_section::with(|cs| {
+        if !serial_buffer.is_empty() && usb_device.poll(&mut [&mut serial::USB_SERIAL.take(cs).unwrap()]) {
+            use serial::UsbSerialPrintError::*;
+            match serial::nonblocking_print(serial_buffer.as_slice()) {
+                // Remove whatever was successfully sent from our buffer
+                Err(WouldBlock(len)) => serial_buffer.drain(0..len),
+                Err(OtherError(a)) => panic!("{a:?}"),
+                Ok(()) => return,
+            };
+        }
+    });
 }
 
 /// Figure out what to do when the select button is pressed, based on the current state and what is currently selected
@@ -569,8 +581,12 @@ fn configure_usb_bus(usbctrl_regs: USBCTRL_REGS, usbctrl_dpram: USBCTRL_DPRAM, r
     ))
 }
 
-fn configure_usb(usb_bus: &UsbBusAllocator<UsbBus>) -> (SerialPort<UsbBus>, UsbDevice<UsbBus>) {
+fn configure_usb(usb_bus: &'static UsbBusAllocator<UsbBus>) -> UsbDevice<'static, UsbBus> {
+    // Generate and store USB serial port in static variable so we can debug print anywhere
     let usb_serial = SerialPort::new(usb_bus);
+    critical_section::with(|cs| {
+        serial::USB_SERIAL.borrow(cs).replace(Some(usb_serial));
+    });
 
     // Create a USB device with a fake VID and PID
     let usb_dev = UsbDeviceBuilder::new(usb_bus, UsbVidPid(0x16c0, 0x27dd))
@@ -582,5 +598,5 @@ fn configure_usb(usb_bus: &UsbBusAllocator<UsbBus>) -> (SerialPort<UsbBus>, UsbD
         .device_class(2) // from: https://www.usb.org/defined-class-codes
         .build();
 
-    (usb_serial, usb_dev)
+    usb_dev
 }
