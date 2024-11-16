@@ -17,6 +17,7 @@ use rp_pico::{
 };
 use critical_section::Mutex;
 use sd_card::SdManager;
+use serial::MAX_SNAPSHOT_LEN;
 use usb_device::{class_prelude::*, prelude::*};
 use usbd_serial::SerialPort;
 
@@ -28,7 +29,7 @@ mod config; use config::{Config, Status::*};
 mod constants; use constants::*;
 mod pcb_mapping {include!("pcb_v1_mapping.rs");} 
 use pcb_mapping::{ButtonPins, DisplayPins, DisplayScl, DisplaySda, SdCardExtraPins, SdCardMiso, SdCardMosi, SdCardPins, SdCardSPIPins, SdCardSck, TempPowerPins, TempSensePins};
-mod lmt01; use lmt01::{TempSensors, CHARS_PER_READING};
+mod lmt01; use lmt01::TempSensors;
 mod display; use display::IncrementalDisplayWriter;
 mod sd_card;
 mod serial;
@@ -122,9 +123,7 @@ fn main() -> ! {
     let mut write_to_sd = false;
 
     // Buffers
-    let mut sensor_values = [[0u8; CHARS_PER_READING]; NUM_SENSOR_CHANNELS]; // Most recent sensor values, to be written to display, serial, or SD card
-    let mut serial_buffer = ArrayVec::<u8, {CHARS_PER_READING*NUM_SENSOR_CHANNELS}>::new(); // We will write to serial as we receive, so buffer need only be big enough for one lot of readings. ASCII.
-    let mut spi_buffer = ArrayVec::<u8, {CHARS_PER_READING*NUM_SENSOR_CHANNELS*16/* 16 is arbitrary */}>::new(); // We store values until we're some multiple of the SD card block size. ASCII.
+    let mut buffers = Buffers::new();
 
     // Autodetect any connected sensors
     config.enabled_channels = temp_sensors.autodetect_sensor_channels(&mut system_timer);
@@ -137,7 +136,7 @@ fn main() -> ! {
 
         // Monitor sensors
         if SENSOR_READINGS_AVAILABLE.load(Ordering::Relaxed) {
-            read_sensors(&mut temp_sensors, &mut sensor_values, &mut serial_buffer, &mut spi_buffer, &config, &mut sample_rate_timer, &mut write_to_sd);
+            read_sensors(&mut temp_sensors, &mut buffers, &config, &mut sample_rate_timer, &mut write_to_sd, &mut system_timer);
             update_available = Some(UpdateReason::NewSensorValues);
         }
         
@@ -158,19 +157,19 @@ fn main() -> ! {
 
         // Deal with SD card
         if write_to_sd {
-            sd_manager.write_bytes(&spi_buffer);
+            sd_manager.write_bytes(&buffers.spi);
             todo!();
         }
 
         // Serial
-        manage_serial_comms(&mut usb_device, &mut serial_buffer);
+        manage_serial_comms(&mut usb_device, &mut buffers.serial);
 
         // Service events and update available state, if required
         if let Some(update_reason) = update_available {
             service_button_event(&mut config, &update_reason);
             state_machine::next_state(&mut config, &mut sd_manager, &update_reason);
             state_machine::state_outputs(&mut config);
-            display_manager.determine_new_screen(&mut system_timer, &config, Some(&sensor_values));
+            display_manager.determine_new_screen(&mut system_timer, &config, buffers.display);
             if config.status == Idle { sample_rate_timer.disable(); } else { sample_rate_timer.enable(); }
         }
 
@@ -220,25 +219,44 @@ fn monitor_sdcard_state(sd_manager: &mut crate::SdManager, config: &mut Config, 
     }
 }
 
-/// Read values from the LMT01 sensors. 
-fn read_sensors(temp_sensors: &mut TempSensors, 
-        sensor_values: &mut [[u8; CHARS_PER_READING]; NUM_SENSOR_CHANNELS], 
-        serial_buffer: &mut ArrayVec::<u8, {CHARS_PER_READING*NUM_SENSOR_CHANNELS}>, 
-        spi_buffer: &mut ArrayVec::<u8, {CHARS_PER_READING*NUM_SENSOR_CHANNELS*16}>, 
-        config: &Config, sample_rate_timer: &mut Slice<Pwm0, FreeRunning>,
-        write_to_sd: &mut bool) {
+/// Stores values while they wait to be sent/used.
+struct Buffers {
+    /// Most recent sensor values, used by the display. ASCII
+    display: display::DisplayValues,
+    /// We store values until we're at least as large as the block size of the SD card block size. ASCII.
+    spi: ArrayVec::<u8, {MAX_SNAPSHOT_LEN*11}>, // 11 is arbitrary. Gets us to 91*11 = 1001 bytes, with a 512 block size it's pretty close to 2 blocks
+    /// We will write to serial as we receive, so buffer need only be big enough for one lot of readings. ASCII.
+    serial: ArrayVec::<u8, {MAX_SNAPSHOT_LEN}>,
+}
+impl Buffers {
+    pub fn new() -> Self {
+        let display = [None; NUM_SENSOR_CHANNELS];
+        let spi = ArrayVec::new();
+        let serial = ArrayVec::new();
+        Self {display, spi, serial}
+    }
+}
 
-    *sensor_values = temp_sensors.read_temperatures_and_end_conversion().map(lmt01::temp_to_string);
+/// Read values from the LMT01 sensors and update buffers
+fn read_sensors(temp_sensors: &mut TempSensors, 
+        buffers: &mut Buffers,  
+        config: &Config, sample_rate_timer: &mut Slice<Pwm0, FreeRunning>,
+        write_to_sd: &mut bool,
+        system_timer: &mut Timer) {
+
+    buffers.display = temp_sensors.read_temperatures_and_end_conversion().map(lmt01::temp_to_string);
     
-    let flattened_values: ArrayVec::<u8, {CHARS_PER_READING*NUM_SENSOR_CHANNELS}> = sensor_values.iter().flatten().copied().collect(); // SD card and serial (right now...) don't care about char grouping, so flatten [[u8; _]; _] into [u8; _]
+    // Technically this timestamp value should probably be from when the conversion *started*, not when it ended, but only 0.1sec difference
+    let serialised_snapshot = serial::serialise_snapshot(system_timer.get_counter(), &buffers.display);
     
     if config.sd.selected_for_use {
-        spi_buffer.try_extend_from_slice(&flattened_values.clone());
-        if spi_buffer.is_full() { *write_to_sd = true; }
+        // TODO: Error handling
+        buffers.spi.try_extend_from_slice(&serialised_snapshot);
+        if buffers.spi.is_full() { *write_to_sd = true; }
     }
 
     if config.serial.selected_for_use {
-        *serial_buffer = flattened_values;
+        buffers.serial = serialised_snapshot;
     }
 
     SENSOR_READINGS_AVAILABLE.store(false, Ordering::Relaxed);
@@ -254,7 +272,7 @@ fn start_next_sensor_reading(temp_sensors: &mut TempSensors, sensors_ready_timer
 }
 
 /// Try to send data over serial.
-fn manage_serial_comms(usb_device: &mut UsbDevice<UsbBus>, serial_buffer: &mut ArrayVec::<u8, {CHARS_PER_READING*NUM_SENSOR_CHANNELS}>) {
+fn manage_serial_comms(usb_device: &mut UsbDevice<UsbBus>, serial_buffer: &mut ArrayVec::<u8, {MAX_SNAPSHOT_LEN}>) {
     // We don't care what gets sent to us, but we need to poll anyway to stay USB compliant
     // Try to send everything we have
     critical_section::with(|cs| {

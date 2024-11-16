@@ -1,4 +1,3 @@
-extern crate alloc;
 use rp_pico::{hal::pio::{InstalledProgram, PIOExt, UninitStateMachine}, pac};
 
 use crate::{constants::*, pcb_mapping::{TempPowerPins, TempSensePins}, pio::{AllPioStateMachines, PioStateMachine}};
@@ -98,42 +97,40 @@ pub const CHARS_PER_READING: usize = 8;
 /// Output: `[u8;8]`, e.g. `b"-50.012C"`, `b"  2.901C"`, `b"234.750C"`
 /// 
 /// If input is `None` output is `b"        "`
-pub fn temp_to_string(tempr: Option<i32>) -> [u8; CHARS_PER_READING] {
+pub fn temp_to_string(tempr: Option<i32>) -> Option<[u8; CHARS_PER_READING]> {
+    let tempr = tempr?;
     let mut out = [0u8; CHARS_PER_READING];
-    if let Some(tempr) = tempr {
-        let neg = tempr < 0;
-        let mut tempr = tempr.clamp(-99_999, 999_999).unsigned_abs();
 
-        for i in 0..CHARS_PER_READING - 1 {
-            if CHARS_PER_READING - 2 - i == 3 { // Decimal place
-                continue;
-            } // decimal place
-            let digit = (tempr % 10) as u8;
-            tempr /= 10;
-            out[CHARS_PER_READING - 2 - i] = digit + b'0';
-        }
-        out[CHARS_PER_READING - 5] = b'.';
-        out[CHARS_PER_READING - 1] = b'C';
+    let neg = tempr < 0;
+    let mut tempr = tempr.clamp(-99_999, 999_999).unsigned_abs();
 
-        // Remove leading zeroes
-        let mut i = 0;
-        for _ in 0..2 {
-            if out[i] == b'0' {
-                out[i] = b' ';
-                i += 1;
-                continue;
-            }
-            break;
-        }
-
-        if neg {
-            out[i.saturating_sub(1)] = b'-';
-        }
+    for i in 0..CHARS_PER_READING - 1 {
+        if CHARS_PER_READING - 2 - i == 3 { // Decimal place
+            continue;
+        } // decimal place
+        let digit = (tempr % 10) as u8;
+        tempr /= 10;
+        out[CHARS_PER_READING - 2 - i] = digit + b'0';
     }
-    else {
-        out = *b"        ";
+    out[CHARS_PER_READING - 5] = b'.';
+    out[CHARS_PER_READING - 1] = b'C';
+
+    // Remove leading zeroes
+    let mut i = 0;
+    for _ in 0..2 {
+        if out[i] == b'0' {
+            out[i] = b' ';
+            i += 1;
+            continue;
+        }
+        break;
     }
-    out
+
+    if neg {
+        out[i.saturating_sub(1)] = b'-';
+    }
+    
+    Some(out)
 }
 
 /// Look up table entry

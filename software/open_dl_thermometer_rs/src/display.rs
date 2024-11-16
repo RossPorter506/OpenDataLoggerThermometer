@@ -17,7 +17,7 @@ pub struct IncrementalDisplayWriter<'a, T:rp_pico::hal::i2c::I2cDevice> {
 impl<'a, T:rp_pico::hal::i2c::I2cDevice> IncrementalDisplayWriter<'a, T> {
     pub fn new(config: &Config, liquid_crystal_i2c_interface: &'a mut liquid_crystal::I2C<rp_pico::hal::I2C<T, (DisplaySda, DisplayScl)>>) -> Self {
         let driver = liquid_crystal::LiquidCrystal::new(liquid_crystal_i2c_interface, Bus4Bits, LCD20X4);
-        Self {screen: determine_screen(config, None).0, next_pos: Some((0,0)), driver}
+        Self {screen: determine_screen(config, [None;NUM_SENSOR_CHANNELS]).0, next_pos: Some((0,0)), driver}
     }
     /// If the display isn't up to date then send one character to the display.
     /// 
@@ -45,7 +45,7 @@ impl<'a, T:rp_pico::hal::i2c::I2cDevice> IncrementalDisplayWriter<'a, T> {
     /// Determine what the screen should look like based on system state, then update the internal display buffer.
     /// 
     /// Does not actually redraw the display. You must call `incremental_update()`
-    pub fn determine_new_screen(&mut self, delay: &mut impl liquid_crystal::DelayNs, config: &Config, sensor_values: Option<&[[u8; CHARS_PER_READING]; NUM_SENSOR_CHANNELS]> ) {
+    pub fn determine_new_screen(&mut self, delay: &mut impl liquid_crystal::DelayNs, config: &Config, sensor_values: DisplayValues) {
         let (screen, cursor_pos) = determine_screen(config, sensor_values);
         self.update_display_buffer(screen);
 
@@ -77,6 +77,9 @@ const SCREEN_MAX_ROW: usize = SCREEN_ROWS-1;
 
 type Line = [u8; SCREEN_COLS];
 type Screen = [Line; SCREEN_ROWS];
+
+/// The sensor values we display on the screen. Not all channels may be producing values, hence `Option`.
+pub type DisplayValues = [Option<[u8; CHARS_PER_READING]>; NUM_SENSOR_CHANNELS];
 
 /// Placeholder for elements that may change based on configuration or system state.
 /// Designed to be overwritten at runtime with actual values.
@@ -112,7 +115,7 @@ const CONFIG_OUTPUTS_SCREEN: Screen = [
 const CONFIG_SD_STATUS_SCREEN: Screen = [
     *b"SD Detected: @@@    ",
     *b"Writable:    @@@    ",
-    *b"Format:      @@@    ",
+    *b"Formatted:   @@@    ",
     *b"Free: @@@@@MB  %NEXT"];
 
 const CONFIG_SD_FILENAME_SCREEN: Screen = [
@@ -266,28 +269,35 @@ fn int_to_vec_u8(n: usize) -> Vec<u8> {
     v
 }
 
+trait ToStr { fn to_str(&self) -> Vec<u8>; }
+impl ToStr for bool {
+    fn to_str(&self) -> Vec<u8> {
+        if *self {b"YES"} else {b"NO "}.into()
+    }
+}
+
 use usbd_serial::embedded_io::Write;
 extern crate alloc;
 use alloc::vec::Vec;
 /// Replace dynamic placeholders with actual values
-fn substitute_dynamic_elements(screen: &mut Screen, config: &Config, sensor_values: Option<&[[u8; CHARS_PER_READING]; NUM_SENSOR_CHANNELS]>) {
+fn substitute_dynamic_elements(screen: &mut Screen, config: &Config, sensor_values: DisplayValues) {
     let dynamic_element_locations = find_dynamic_element_placeholders(screen);
     // Inner Vec<u8> can't be an ArrayVec because it doesn't handle different length strings correctly for some reason
     let mut dynamic_strs = ArrayVec::<Vec<u8>, MAX_DYNAMIC_ELEMENTS>::new();
     match config.curr_state {
         ConfigOutputs(_) => {
-            dynamic_strs.push(if config.serial.selected_for_use {b"YES"} else {b"NO "}.into());
-            dynamic_strs.push(if config.sd.selected_for_use     {b"YES"} else {b"NO "}.into());
+            dynamic_strs.push(config.serial.selected_for_use.to_str());
+            dynamic_strs.push(config.sd.selected_for_use.to_str());
         },
         ConfigSDStatus(_) => {
-            dynamic_strs.push(if config.sd.card_detected {b"YES"} else {b"NO "}.into());   // SD detected
-            dynamic_strs.push(if config.sd.card_writable {b"YES"} else {b"NO "}.into());   // SD writable
-            dynamic_strs.push(if config.sd.card_formatted {b"YES"} else {b"NO "}.into());   // SD formatted
+            dynamic_strs.push(config.sd.card_detected.to_str());   // SD detected
+            dynamic_strs.push(config.sd.card_writable.to_str());   // SD writable
+            dynamic_strs.push(config.sd.card_formatted.to_str());   // SD formatted
             // Free space
             const MAX_FREE_SPACE_CHARS: usize = 5;
             let free_space_megabytes: usize = config.sd.free_space_bytes as usize / 1_000_000;
             let free_space_str = int_to_vec_u8(free_space_megabytes);
-            dynamic_strs.push( if free_space_str.len() < MAX_FREE_SPACE_CHARS {right_align(free_space_str, MAX_FREE_SPACE_CHARS)} else {b"9999+".into()} ); 
+            dynamic_strs.push( if free_space_str.len() < MAX_FREE_SPACE_CHARS {right_align(free_space_str, MAX_FREE_SPACE_CHARS)} else {b">9999".into()} ); 
         },
         ConfigSDFilename(_) => {
             dynamic_strs.push(config.sd.filename.into());
@@ -295,7 +305,7 @@ fn substitute_dynamic_elements(screen: &mut Screen, config: &Config, sensor_valu
         },
         ConfigChannelSelect(_) => {
             for is_enabled in config.enabled_channels {
-                dynamic_strs.push(if is_enabled {b"YES"} else {b"NO "}.into());
+                dynamic_strs.push(is_enabled.to_str());
             }
         },
         ConfigSampleRate(_) => {
@@ -305,10 +315,16 @@ fn substitute_dynamic_elements(screen: &mut Screen, config: &Config, sensor_valu
             dynamic_strs.push( right_align(int_to_vec_u8(kb_per_hr), 3) );
         },
         ViewTemperatures(_) | DatalogTemperatures(_) => {
-            let sensor_values: [[u8; CHARS_PER_READING]; NUM_SENSOR_CHANNELS] = *sensor_values.unwrap_or(&[*b"XXXXXXXX"; NUM_SENSOR_CHANNELS]);
-            for (&is_enabled, sensor_value) in config.enabled_channels.iter().zip(sensor_values) {
+            /// How many characters we have to display a reading
+            const NUM_DISP_CHARS: usize = 6; 
+            for opt_value in sensor_values {
                 // Truncate the sensor reading to fit on the display and reappend the 'C' on the end, if enabled
-                let sensor_str: Vec<u8> = if is_enabled {let mut v = sensor_value[..6].to_vec(); v.push(b'C'); v} else {b"      ".into()};
+                let sensor_str: Vec<u8> = if let Some(sensor_value) = opt_value {
+                    let mut v = sensor_value[..NUM_DISP_CHARS-1].to_vec(); 
+                    v.push(b'C'); 
+                    v
+                } 
+                else { [b' '; NUM_DISP_CHARS].into() };
                 dynamic_strs.push(sensor_str);
             }
         },
@@ -321,7 +337,7 @@ fn substitute_dynamic_elements(screen: &mut Screen, config: &Config, sensor_valu
 
 use crate::state_machine::State::*;
 /// Determine what the screen should look like based on system state
-fn determine_screen(config: &Config, sensor_values: Option<&[[u8; CHARS_PER_READING]; NUM_SENSOR_CHANNELS]>) -> (Screen, Option<(usize, usize)>) {
+fn determine_screen(config: &Config, sensor_values: DisplayValues) -> (Screen, Option<(usize, usize)>) {
     let (selected_element_pos, mut display_buffer) = match config.curr_state {
         Mainmenu(sel) =>                    (Some(sel as usize), MAINMENU_SCREEN),
         ConfigOutputs(sel) =>               (Some(sel as usize), CONFIG_OUTPUTS_SCREEN),
