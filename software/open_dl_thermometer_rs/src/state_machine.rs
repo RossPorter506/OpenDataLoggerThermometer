@@ -136,15 +136,15 @@ use DatalogErrorSDFullSelectables::*;
 use DatalogSDSafeToRemoveSelectables as DlSDSafe;
 use MainmenuSelectables::*;
 
-use crate::config::Status::SamplingAndDatalogging;
+use crate::{config::Status::SamplingAndDatalogging, sd_card::SdManager};
 /// Determine the next state based on the current state and config
-pub fn next_state(config: &mut crate::config::Config, update_reason: &UpdateReason) {
+pub fn next_state(config: &mut crate::config::Config, sd_manager: &mut SdManager, update_reason: &UpdateReason) {
     if *update_reason != SelectButton {
         match update_reason {
             SDSafeToRemove => config.curr_state = DatalogSDSafeToRemove(d::default()),
             SDFull => config.curr_state = DatalogErrorSDFull(d::default()),
             SDRemovedUnexpectedly => 
-                if config.status == SamplingAndDatalogging && config.sd.enabled {config.curr_state = DatalogSDUnexpectedRemoval(d::default())},
+                if config.status == SamplingAndDatalogging && config.sd.selected_for_use {config.curr_state = DatalogSDUnexpectedRemoval(d::default())},
             NextButton => config.curr_state = config.curr_state.next_selectable(),
             _ => (),
         };
@@ -154,14 +154,12 @@ pub fn next_state(config: &mut crate::config::Config, update_reason: &UpdateReas
     config.curr_state = match &config.curr_state {
         Mainmenu(Configure) => ConfigOutputs(d::default()),
         Mainmenu(View)      => ViewTemperatures(d::default()),
-        Mainmenu(Datalog)   => DatalogTemperatures(d::default()),
+        Mainmenu(Datalog)   => if !config.sd.selected_for_use || sd_manager.ready_to_write() {DatalogTemperatures(d::default())} 
+                                else {DatalogSDUnexpectedRemoval(d::default())},
 
         ConfigOutputs(ConOut::Next) => {
             if config.sd.selected_for_use { ConfigSDStatus(d::default()) } 
-                ConfigSDStatus(d::default())
-            } else {
-                ConfigChannelSelect(d::default())
-            }
+            else { ConfigChannelSelect(d::default()) }
         }
 
         ConfigSDStatus(ConSDStat::Next)         => {
@@ -187,6 +185,26 @@ pub fn next_state(config: &mut crate::config::Config, update_reason: &UpdateReas
         DatalogSDSafeToRemove(DlSDSafe::Next)   => Mainmenu(d::default()),
 
         _ => config.curr_state,
+    }
+}
+
+/// Compute Moore-type state outputs that depend only on the current state
+pub fn state_outputs(config: &mut crate::config::Config) {
+    use crate::config::Status::*;
+    config.status = match config.curr_state {
+        Mainmenu(_)                     => Idle,
+        ConfigOutputs(_)                => Idle,
+        ConfigSDStatus(_)               => Idle,
+        ConfigSDFilename(_)             => Idle,
+        ConfigChannelSelect(_)          => Idle,
+        ConfigSampleRate(_)             => Idle,
+        ViewTemperatures(_)             => Sampling,
+        DatalogTemperatures(_)          => SamplingAndDatalogging,
+        DatalogConfirmStop(_)           => SamplingAndDatalogging,
+        DatalogErrorSDFull(_)           => SamplingAndDatalogging,
+        DatalogSDUnexpectedRemoval(_)   => SamplingAndDatalogging,
+        DatalogSDWriting(_)             => Idle,
+        DatalogSDSafeToRemove(_)        => Idle,
     }
 }
 

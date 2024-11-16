@@ -153,20 +153,14 @@ fn main() -> ! {
             _ => update_available, // no change
         };
 
+        // Check if the card is inserted or removed
+        monitor_sdcard_state(&mut sd_manager, &mut config, &mut update_available, &clocks.peripheral_clock);
+
         // Deal with SD card
         if write_to_sd {
-            // Is SD card full?
-            // Is SD card safe to remove? (if relevant)
-            //if sd_buffer.is_empty() {write_to_sd = false;}
-            //else {
-            //  if spi_tx_buffer.has_room() {spi_tx_buffer.push(sd_buffer.pop())}
-            //}
             sd_manager.write_bytes(&spi_buffer);
             todo!();
         }
-        
-        // Check if the card is inserted or removed
-        monitor_sdcard_state(&mut sd_manager, &mut config, &mut update_available, &clocks.peripheral_clock);
 
         // Serial
         manage_serial_comms(&mut usb_device, &mut serial_buffer);
@@ -174,7 +168,8 @@ fn main() -> ! {
         // Service events and update available state, if required
         if let Some(update_reason) = update_available {
             service_button_event(&mut config, &update_reason);
-            state_machine::next_state(&mut config, &update_reason);
+            state_machine::next_state(&mut config, &mut sd_manager, &update_reason);
+            state_machine::state_outputs(&mut config);
             display_manager.determine_new_screen(&mut system_timer, &config, Some(&sensor_values));
             if config.status == Idle { sample_rate_timer.disable(); } else { sample_rate_timer.enable(); }
         }
@@ -202,8 +197,10 @@ fn monitor_sdcard_state(sd_manager: &mut crate::SdManager, config: &mut Config, 
             // SD card removed unexpectedly
             // Move to SD card error screen
             *update_available = Some(UpdateReason::SDRemovedUnexpectedly);
+            sd_manager.reset_after_unexpected_removal();
             todo!();
         }
+        return;
     }
     else if !config.sd.card_detected && sd_present { // SD card inserted
         sd_manager.initialise_card(peripheral_clock);
@@ -214,8 +211,12 @@ fn monitor_sdcard_state(sd_manager: &mut crate::SdManager, config: &mut Config, 
         config.sd.free_space_bytes = sd_manager.get_free_space_bytes();
         todo!();
     }
-    if config.status == SamplingAndDatalogging && !sd_manager.is_file_open(&String::from_utf8_lossy(&config.sd.filename)) {
+    if config.status == SamplingAndDatalogging && !sd_manager.ready_to_write() {
         sd_manager.open_file(&String::from_utf8_lossy(&config.sd.filename));
+    }
+    else if config.status != SamplingAndDatalogging && !sd_manager.ready_to_remove() {
+        // We don't need to write to the card if we're not datalogging, so make it safe to remove just in case the user removes it.
+        sd_manager.prepare_for_removal();
     }
 }
 
@@ -229,14 +230,15 @@ fn read_sensors(temp_sensors: &mut TempSensors,
 
     *sensor_values = temp_sensors.read_temperatures_and_end_conversion().map(lmt01::temp_to_string);
     
-    let flattened_values = sensor_values.iter().flatten().copied(); // SD card and serial (right now...) don't care about char grouping, so flatten [[u8; _]; _] into [u8; _]
-    if config.sd.enabled {
+    let flattened_values: ArrayVec::<u8, {CHARS_PER_READING*NUM_SENSOR_CHANNELS}> = sensor_values.iter().flatten().copied().collect(); // SD card and serial (right now...) don't care about char grouping, so flatten [[u8; _]; _] into [u8; _]
+    
     if config.sd.selected_for_use {
+        spi_buffer.try_extend_from_slice(&flattened_values.clone());
         if spi_buffer.is_full() { *write_to_sd = true; }
     }
-    
+
     if config.serial.selected_for_use {
-        *serial_buffer = flattened_values.collect();
+        *serial_buffer = flattened_values;
     }
 
     SENSOR_READINGS_AVAILABLE.store(false, Ordering::Relaxed);
@@ -269,50 +271,50 @@ fn manage_serial_comms(usb_device: &mut UsbDevice<UsbBus>, serial_buffer: &mut A
     });
 }
 
-/// Figure out what to do when the select button is pressed, based on the current state and what is currently selected
+/// Update system configuration according to button presses.
 /// 
-/// This function deals exclusively with state machine outputs. Changes to the system state are calculated in `state_machine::next_state()`
+/// This function handles Mealy-style changes that depend on specific transitions. Next state transitions and Moore-style 'state-only' outputs handled elsewhere.
 fn service_button_event(config: &mut Config, update_reason: &UpdateReason) {
     if *update_reason != UpdateReason::SelectButton {
         return;
     }
     // If we press select while we have a configurable item selected we need to toggle it
     match &config.curr_state {
-        Mainmenu(View) => config.status = Sampling,
-        Mainmenu(Datalog) => config.status = SamplingAndDatalogging,
-        Mainmenu(Configure) => (),
+        Mainmenu(View)          => (),
+        Mainmenu(Datalog)       => (),
+        Mainmenu(Configure)     => (),
 
-        ViewTemperatures(ViewTemp::None) => config.status = Idle, 
-        DatalogTemperatures(DlogTempSel::None) => (), // Don't exit datalogging mode yet, confirm screen first
+        ViewTemperatures(ViewTemp::None)        => (), 
+        DatalogTemperatures(DlogTempSel::None)  => (),
 
-        ConfigOutputs(Serial) => config.serial.enabled ^= true,
-        ConfigOutputs(SDCard) => config.sd.enabled ^= true,
-        ConfigOutputs(ConOutSel::Next) => (),
+        ConfigOutputs(Serial)                   => config.serial.selected_for_use ^= true,
+        ConfigOutputs(SDCard)                   => config.sd.selected_for_use ^= true,
+        ConfigOutputs(ConOutSel::Next)          => (),
 
-        ConfigSDStatus(ConSdStatSel::Next) => (),
+        ConfigSDStatus(ConSdStatSel::Next)      => (),
 
-        ConfigSDFilename(ConSDName::Next) => (), // don't accidentally capture this case in the catch-all `char_num` pattern below.
-        ConfigSDFilename(Filetype) => config.sd.filetype = config.sd.filetype.next(),
-        ConfigSDFilename(char_num) => cycle_ascii_char(&mut config.sd.filename[*char_num as usize]), //filename characters 0-9
+        ConfigSDFilename(ConSDName::Next)       => (), // don't accidentally capture this case in the catch-all `char_num` pattern below.
+        ConfigSDFilename(Filetype)              => config.sd.filetype = config.sd.filetype.next(),
+        ConfigSDFilename(char_num)              => cycle_ascii_char(&mut config.sd.filename[*char_num as usize]), //filename characters 0-9
 
-        ConfigChannelSelect(ConChanSel::Next) => (), // don't accidentally capture this case in the catch-all `ch_num` pattern below.
-        ConfigChannelSelect(ch_num) => config.enabled_channels[*ch_num as usize] ^= true, // selected channels 1-8
+        ConfigChannelSelect(ConChanSel::Next)   => (), // don't accidentally capture this case in the catch-all `ch_num` pattern below.
+        ConfigChannelSelect(ch_num)             => config.enabled_channels[*ch_num as usize] ^= true, // selected channels 1-8
 
-        ConfigSampleRate(SampleRate) => {cycle_sample_rate(&mut config.samples_per_sec); WRAPS_PER_SAMPLE.store(8/config.samples_per_sec, Ordering::Relaxed);},
-        ConfigSampleRate(ConRateSel::Next) => (),
+        ConfigSampleRate(SampleRate)            => {cycle_sample_rate(&mut config.samples_per_sec); WRAPS_PER_SAMPLE.store(8/config.samples_per_sec, Ordering::Relaxed);},
+        ConfigSampleRate(ConRateSel::Next)      => (),
 
-        DatalogConfirmStop(ConfirmStop) => config.status = Idle,
-        DatalogConfirmStop(CancelStop) => (),
+        DatalogConfirmStop(ConfirmStop)         => (),
+        DatalogConfirmStop(CancelStop)          => (),
 
-        DatalogErrorSDFull(ContinueWithoutSD) => config.sd.enabled = false,
-        DatalogErrorSDFull(StopDatalogging) => config.status = Idle,
+        DatalogErrorSDFull(ContinueWithoutSD)   => config.sd.selected_for_use = false,
+        DatalogErrorSDFull(StopDatalogging)     => (),
         
-        DatalogSDWriting(DlogSdWrtSel::None) => (),
+        DatalogSDWriting(DlogSdWrtSel::None)    => (),
 
-        DatalogSDSafeToRemove(DlogSafeRemovSel::Next) => (),
+        DatalogSDSafeToRemove(DlogSafeRemovSel::Next)                   => (),
 
-        DatalogSDUnexpectedRemoval(DlogSdRemovSel::ContinueWithoutSD) => config.sd.enabled = false,
-        DatalogSDUnexpectedRemoval(DlogSdRemovSel::StopDatalogging) => config.status = Idle,
+        DatalogSDUnexpectedRemoval(DlogSdRemovSel::ContinueWithoutSD)   => config.sd.selected_for_use = false,
+        DatalogSDUnexpectedRemoval(DlogSdRemovSel::StopDatalogging)     => (),
     };
 }
 /// Cycle through alphanumeric ASCII values.

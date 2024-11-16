@@ -96,6 +96,29 @@ impl SdManager {
         let Ok(writable) = self.extra_pins.write_protect.is_low();
         writable
     }
+
+    /// Prepare the card for safe removal. The card is safe to remove after this function finishes.
+    pub fn prepare_for_removal(&mut self) {
+        todo!()
+    }
+
+    /// Reset the state of the sd_manager and all subcomponents after an SD card is unexpectedly removed. 
+    /// 
+    /// This includes dealing with files that should have been closed, etc.
+    pub fn reset_after_unexpected_removal(&mut self) {
+        // The volume manager will likely be unhappy about files remaining open, but probably can't close them either. Figure out what to do.
+        todo!()
+    }
+
+    /// Whether we are ready to write data to the SD card 
+    pub fn ready_to_write(&mut self) -> bool {
+        self.is_card_detected() && self.is_card_writable() && self.is_file_open()
+    }
+
+    /// Whether the card is ready to be removed safely
+    pub fn ready_to_remove(&mut self) -> bool {
+        todo!()
+    }
 }
 
 /// Wrapper layer that implements embedded_hal SpiDevice for the rp2040-hal SPI bus (confusingly also called SpiDevice)
