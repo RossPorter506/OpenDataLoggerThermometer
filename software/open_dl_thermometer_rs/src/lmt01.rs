@@ -191,9 +191,11 @@ pub fn configure_pios_for_lmt01(pio0: pac::PIO0, pio1: pac::PIO1, resets: &mut p
     
     let (mut pio0, p0sm0, p0sm1, p0sm2, p0sm3) = pio0.split(resets);
     let (mut pio1, p1sm0, p1sm1, p1sm2, p1sm3) = pio1.split(resets);
-    let installed0 = pio0.install(&program.program).unwrap();
-    let installed1 = pio1.install(&program.program).unwrap();
+    let Ok(installed0) = pio0.install(&program.program) else { unreachable!() };
+    let Ok(installed1) = pio1.install(&program.program) else { unreachable!() };
 
+    // Cloning program handle is unsafe in the case where uninstall() is called while another machine is still running the program
+    // Safety: uninstall() is simply never called
     let p0sm0 = configure_sm_for_lmt01(p0sm0, sense_pins.vn1.id().num, unsafe{installed0.share()});
     let p0sm1 = configure_sm_for_lmt01(p0sm1, sense_pins.vn2.id().num, unsafe{installed0.share()});
     let p0sm2 = configure_sm_for_lmt01(p0sm2, sense_pins.vn3.id().num, unsafe{installed0.share()});
