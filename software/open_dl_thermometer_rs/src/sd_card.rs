@@ -69,7 +69,7 @@ impl SdManager {
     }
 
     /// Get the number of bytes free on the SD card
-    pub fn get_free_space_bytes(&mut self) -> u32 {
+    pub fn get_free_space_bytes(&mut self) -> u64 {
         todo!()
     }
 

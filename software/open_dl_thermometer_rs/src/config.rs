@@ -46,7 +46,7 @@ pub struct SDConfig {
     pub card_detected: bool,
     pub card_writable: bool,
     pub card_formatted: bool,
-    pub free_space_bytes: u32,
+    pub free_space_bytes: u64,
     pub safe_to_remove: bool,
 }
 impl Default for SDConfig {
