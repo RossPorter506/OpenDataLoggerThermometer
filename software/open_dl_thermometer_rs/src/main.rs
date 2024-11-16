@@ -2,7 +2,6 @@
 #![no_main]
 #![feature(variant_count)]
 use core::{cell::RefCell, sync::atomic::{AtomicU8,AtomicBool, Ordering}};
-use embedded_sdmmc::TimeSource;
 use panic_halt as _;
 
 use rp_pico::{
@@ -16,7 +15,6 @@ use rp_pico::{
     },
     pac::{self, interrupt, CLOCKS, I2C0, IO_BANK0, PADS_BANK0, PLL_SYS, PLL_USB, PWM, RESETS, SIO, SPI0, TIMER, USBCTRL_DPRAM, USBCTRL_REGS, WATCHDOG, XOSC},
 };
-use embedded_hal::{digital::{InputPin, OutputPin}, spi::{ErrorType, SpiBus, SpiDevice}};
 use critical_section::Mutex;
 use sd_card::SdManager;
 use usb_device::{class_prelude::*, prelude::*};
@@ -29,7 +27,7 @@ use alloc::string::String;
 mod config; use config::{Config, Status::*};
 mod constants; use constants::*;
 mod pcb_mapping {include!("pcb_v1_mapping.rs");} 
-use pcb_mapping::{ButtonPins, DisplayPins, DisplayScl, DisplaySda, SdCardCs, SdCardExtraPins, SdCardMiso, SdCardMosi, SdCardPins, SdCardSPIPins, SdCardSck, TempPowerPins, TempSensePins};
+use pcb_mapping::{ButtonPins, DisplayPins, DisplayScl, DisplaySda, SdCardExtraPins, SdCardMiso, SdCardMosi, SdCardPins, SdCardSPIPins, SdCardSck, TempPowerPins, TempSensePins};
 mod lmt01; use lmt01::{TempSensors, CHARS_PER_READING};
 mod display; use display::IncrementalDisplayWriter;
 mod sd_card;
@@ -61,60 +59,6 @@ Determine when SD card is safe to remove
 Maybe wrap everything up into a nice struct
 Stretch goal: Synchronise time with Pico W and NTP. Maybe not doable - cyw43 doesn't seem to support EAP WAP?
 */
-
-/*
-struct SystemPeripherals {
-    temp_sensors: TempSensors,
-    display: Display,
-    sd_card: SDCard,
-    usb: USB,
-}
-impl SystemPeripherals {
-}*/
-
-/// Implements embedded_hal SpiDevice
-struct SDCardSPIDriver {
-    spi_bus: Spi<spi::Enabled, SPI0, (SdCardMosi, SdCardMiso, SdCardSck), BITS_PER_SPI_PACKET>,
-    cs: SdCardCs,
-}
-impl ErrorType for SDCardSPIDriver{
-    type Error = embedded_hal::spi::ErrorKind; // For now.
-}
-impl SpiDevice for SDCardSPIDriver {
-    fn transaction(&mut self, operations: &mut [embedded_hal::spi::Operation<'_, u8>]) -> Result<(), Self::Error> {
-        let _ = self.cs.set_low();
-        use embedded_hal::spi::Operation::*;
-        for op in operations {
-            let _ = match op {
-                Read(buf) =>                self.spi_bus.read(buf),
-                Write(buf) =>               self.spi_bus.write(buf),
-                Transfer(rd_buf, wr_buf) => self.spi_bus.transfer(rd_buf, wr_buf),
-                TransferInPlace(buf) =>     self.spi_bus.transfer_in_place(buf),
-                DelayNs(_) =>               return Err(embedded_hal::spi::ErrorKind::Other), // embedded_sdmmc uses a separate delay object
-            };
-        }
-        let _ = self.spi_bus.flush();
-        let _ = self.cs.set_high();
-        Ok(())
-    }
-}
-
-impl TimeSource for RtcWrapper {
-    fn get_timestamp(&self) -> embedded_sdmmc::Timestamp {
-        let timestamp = self.rtc.now().unwrap();
-        embedded_sdmmc::Timestamp {
-            year_since_1970: timestamp.year as u8,
-            zero_indexed_month: timestamp.month,
-            zero_indexed_day: timestamp.day,
-            hours: timestamp.hour,
-            minutes: timestamp.minute,
-            seconds: timestamp.second,
-        }
-    }
-}
-struct RtcWrapper {
-    rtc: rp_pico::hal::rtc::RealTimeClock,
-}
 
 // Heap so we can use Vec, etc.. Try to use ArrayVec where possible though.
 use embedded_alloc::LlffHeap as Heap;
@@ -159,10 +103,9 @@ fn main() -> ! {
 
     // RTC
     let rtc = rp_pico::hal::rtc::RealTimeClock::new(registers.RTC, clocks.rtc_clock, &mut registers.RESETS, rp_pico::hal::rtc::DateTime{ year: 2024, month: 1, day: 1, day_of_week: rp_pico::hal::rtc::DayOfWeek::Monday, hour: 1, minute: 1, second: 1 }).unwrap();
-    let rtc_wrapper = RtcWrapper{rtc};
 
     // SD card manager
-    let mut sd_manager = crate::sd_card::SdManager::new(SDCardSPIDriver{spi_bus, cs: sdcard_pins.cs}, system_timer, sdcard_pins.extra, rtc_wrapper);
+    let mut sd_manager = crate::sd_card::SdManager::new(spi_bus, sdcard_pins.cs, system_timer, sdcard_pins.extra, rtc);
 
     // USB
     // WARNING: USB_SERIAL relies on usb_bus never being consumed. usb_bus MUST continue to be in scope for the lifetime of the program.
@@ -243,7 +186,7 @@ fn main() -> ! {
 
 /// Listen for an SD card being inserted or removed and initialise, if required
 fn monitor_sdcard_state(sd_manager: &mut crate::SdManager, config: &mut Config, update_available: &mut Option<UpdateReason>, peripheral_clock: &PeripheralClock) {
-    let Ok(sd_present) = sd_manager.extra_pins.card_detect.is_low();
+    let sd_present = sd_manager.is_card_detected();
     if config.sd.card_detected && !sd_present { // SD card removed
         config.sd.card_detected = false;
         config.sd.card_writable = false;
@@ -263,18 +206,12 @@ fn monitor_sdcard_state(sd_manager: &mut crate::SdManager, config: &mut Config, 
         }
     }
     else if !config.sd.card_detected && sd_present { // SD card inserted
-        // Ensure SPI bus is clocked at 400kHz for initialisation, then
-        // send at least 74 clock pulses (without chip select) to wake up card,
-        // then reconfigure SPI back to 25MHz
-        sd_manager.vmgr.device().spi(|driver| {
-            driver.spi_bus.set_baudrate(peripheral_clock.freq(), 400.kHz());
-            let _ = driver.spi_bus.write(&[0;10]); 
-            driver.spi_bus.set_baudrate(peripheral_clock.freq(), 25.MHz())
-        });
+        sd_manager.initialise_card(peripheral_clock);
+
         config.sd.card_detected = true;
-        Ok(config.sd.card_writable) = sd_manager.extra_pins.write_protect.is_low();
+        config.sd.card_writable = sd_manager.is_card_writable();
         config.sd.card_formatted = sd_manager.is_card_formatted();
-        config.sd.free_space_bytes = todo!();
+        config.sd.free_space_bytes = sd_manager.get_free_space_bytes();
         todo!();
     }
     if config.status == SamplingAndDatalogging && !sd_manager.is_file_open(&String::from_utf8_lossy(&config.sd.filename)) {
