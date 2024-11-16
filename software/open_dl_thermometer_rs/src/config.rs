@@ -34,13 +34,13 @@ pub enum Status {
 /// USB serial configuration info
 #[derive(Default)]
 pub struct SerialConfig {
-    pub enabled: bool,
+    pub selected_for_use: bool,
 }
 
 pub const FILENAME_MAX_LEN: usize = 10;
 /// SD card configuration info
 pub struct SDConfig {
-    pub enabled: bool,
+    pub selected_for_use: bool,
     pub filename: [u8; FILENAME_MAX_LEN],
     pub filetype: Filetype,
     pub card_detected: bool,
@@ -52,7 +52,7 @@ pub struct SDConfig {
 impl Default for SDConfig {
     fn default() -> Self {
         Self {
-            enabled: false,
+            selected_for_use: false,
             card_detected: false,
             card_writable: false,
             card_formatted: false,
@@ -64,8 +64,8 @@ impl Default for SDConfig {
     }
 }
 impl SDConfig {
-    pub fn is_ready(&self) -> bool {
-        !self.enabled || (self.card_detected && self.card_writable && self.card_formatted)
+    pub fn configuration_complete(&self) -> bool {
+        !self.selected_for_use || (self.card_detected && self.card_writable && self.card_formatted)
     }
 }
 

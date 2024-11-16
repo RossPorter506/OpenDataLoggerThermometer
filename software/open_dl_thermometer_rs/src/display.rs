@@ -276,8 +276,8 @@ fn substitute_dynamic_elements(screen: &mut Screen, config: &Config, sensor_valu
     let mut dynamic_strs = ArrayVec::<Vec<u8>, MAX_DYNAMIC_ELEMENTS>::new();
     match config.curr_state {
         ConfigOutputs(_) => {
-            dynamic_strs.push(if config.serial.enabled {b"YES"} else {b"NO "}.into());
-            dynamic_strs.push(if config.sd.enabled     {b"YES"} else {b"NO "}.into());
+            dynamic_strs.push(if config.serial.selected_for_use {b"YES"} else {b"NO "}.into());
+            dynamic_strs.push(if config.sd.selected_for_use     {b"YES"} else {b"NO "}.into());
         },
         ConfigSDStatus(_) => {
             dynamic_strs.push(if config.sd.card_detected {b"YES"} else {b"NO "}.into());   // SD detected

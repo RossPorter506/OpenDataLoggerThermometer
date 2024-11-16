@@ -231,11 +231,11 @@ fn read_sensors(temp_sensors: &mut TempSensors,
     
     let flattened_values = sensor_values.iter().flatten().copied(); // SD card and serial (right now...) don't care about char grouping, so flatten [[u8; _]; _] into [u8; _]
     if config.sd.enabled {
-        spi_buffer.extend(flattened_values.clone());
+    if config.sd.selected_for_use {
         if spi_buffer.is_full() { *write_to_sd = true; }
     }
     
-    if config.serial.enabled {
+    if config.serial.selected_for_use {
         *serial_buffer = flattened_values.collect();
     }
 

@@ -157,7 +157,7 @@ pub fn next_state(config: &mut crate::config::Config, update_reason: &UpdateReas
         Mainmenu(Datalog)   => DatalogTemperatures(d::default()),
 
         ConfigOutputs(ConOut::Next) => {
-            if config.sd.enabled {
+            if config.sd.selected_for_use { ConfigSDStatus(d::default()) } 
                 ConfigSDStatus(d::default())
             } else {
                 ConfigChannelSelect(d::default())
@@ -165,7 +165,7 @@ pub fn next_state(config: &mut crate::config::Config, update_reason: &UpdateReas
         }
 
         ConfigSDStatus(ConSDStat::Next)         => {
-            if config.sd.is_ready() { ConfigSDFilename(d::default()) } 
+            if config.sd.configuration_complete() { ConfigSDFilename(d::default()) } 
             else { ConfigSDStatus(d::default()) }},
 
         ConfigSDFilename(ConSDName::Next)       => ConfigChannelSelect(d::default()),

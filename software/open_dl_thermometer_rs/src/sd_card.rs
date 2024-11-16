@@ -11,9 +11,10 @@ pub struct SdManager {
     vmgr: VolumeManager<embedded_sdmmc::SdCard<SDCardSPIDriver, Timer>, RtcWrapper>,
     file: Option<embedded_sdmmc::filesystem::RawFile>,
 }
-
+const MBR_MAX_PARTITIONS: usize = 4;
+type SpiBus0Enabled = Spi<Enabled,SPI0,(SdCardMosi, SdCardMiso, SdCardSck), {crate::BITS_PER_SPI_PACKET}>;
 impl SdManager {
-    pub fn new(spi_bus: Spi<Enabled,SPI0,(SdCardMosi, SdCardMiso, SdCardSck), {crate::BITS_PER_SPI_PACKET}>, cs: SdCardCs, delay: Timer, extra_pins: crate::pcb_mapping::SdCardExtraPins, rtc: RealTimeClock) -> Self {
+    pub fn new(spi_bus: SpiBus0Enabled, cs: SdCardCs, delay: Timer, extra_pins: SdCardExtraPins, rtc: RealTimeClock) -> Self {
         let rtc_wrapper = RtcWrapper{rtc};
         let spi_driver = SDCardSPIDriver{spi_bus, cs};
         let new_card = embedded_sdmmc::SdCard::new(spi_driver, delay);
@@ -28,7 +29,7 @@ impl SdManager {
 
     /// Whether there is a volume on the SD card that is formatted in a way we can understand
     pub fn is_card_formatted(&mut self) -> bool {
-        for i in 0..=4 {
+        for i in 0..MBR_MAX_PARTITIONS {
             let volume = self.vmgr.open_volume(VolumeIdx(i));
             if volume.is_ok() {return true}
         }
@@ -37,7 +38,7 @@ impl SdManager {
 
     /// Open a file for writing, creating it if it doesn't exist already. If it does exist the contents are cleared.
     pub fn open_file(&mut self, name: &str) {
-        for i in 0..=4 {
+        for i in 0..MBR_MAX_PARTITIONS {
             let Ok(volume) = self.vmgr.open_raw_volume(VolumeIdx(i)) else {continue};
             let Ok(root_dir) = self.vmgr.open_root_dir(volume) else {continue};
             let Ok(file) = self.vmgr.open_file_in_dir(root_dir, name, Mode::ReadWriteCreateOrTruncate) else {continue};
@@ -47,7 +48,7 @@ impl SdManager {
     }
 
     /// Whether we have a particular file open at the moment
-    pub fn is_file_open(&mut self, filename: &str) -> bool { 
+    pub fn is_file_open(&mut self) -> bool { 
         todo!()
     }
 
