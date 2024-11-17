@@ -81,10 +81,6 @@ fn main() -> ! {
     // GPIO pin groups
     let (temp_power, temp_sense, sdcard_pins, display_pins) = collect_pins(registers.SIO, registers.IO_BANK0, registers.PADS_BANK0, &mut registers.RESETS);
 
-    // PIO
-    let pio_state_machines = lmt01::configure_pios_for_lmt01(registers.PIO0, registers.PIO1, &mut registers.RESETS, &temp_sense);
-    let mut temp_sensors = TempSensors::new(temp_power, temp_sense, pio_state_machines);
-
     // System clocks
     let (_watchdog, clocks) = configure_clocks(registers.WATCHDOG, registers.XOSC, registers.CLOCKS, registers.PLL_SYS, registers.PLL_USB, &mut registers.RESETS);
 
@@ -102,22 +98,26 @@ fn main() -> ! {
     // SPI
     let spi_bus = configure_spi(registers.SPI0, sdcard_pins.spi, &mut registers.RESETS, &clocks);
 
+    // USB
+    // WARNING: USB_SERIAL relies on usb_bus never being consumed. usb_bus MUST continue to be in scope for the lifetime of the program.
+    let usb_bus = configure_usb_bus(registers.USBCTRL_REGS, registers.USBCTRL_DPRAM, &mut registers.RESETS, clocks.usb_clock);
+
+    // Upgrade the lifetime of the USB bus reference to 'static so we can store USB_SERIAL in a static variable and print anywhere.
+    // DO NOT DO THIS unless you understand exactly what this entails.
+    // Safety: main never returns, so usb_bus (and thus our reference to it) is effectively static.
+    // We are single-threaded so no references to the bus could outlive this thread. We also panic-abort, so no stack unwinding can occur.
+    let static_usb_bus_ref: &'static UsbBusAllocator<UsbBus> = unsafe{ core::mem::transmute(&usb_bus) }; 
+    let mut usb_device = configure_usb(static_usb_bus_ref);
+
     // RTC
     let rtc = rp_pico::hal::rtc::RealTimeClock::new(registers.RTC, clocks.rtc_clock, &mut registers.RESETS, rp_pico::hal::rtc::DateTime{ year: 2024, month: 1, day: 1, day_of_week: rp_pico::hal::rtc::DayOfWeek::Monday, hour: 1, minute: 1, second: 1 }).unwrap();
 
     // SD card manager
     let mut sd_manager = crate::sd_card::SdManager::new(spi_bus, sdcard_pins.cs, system_timer, sdcard_pins.extra, rtc);
 
-    // USB
-    // WARNING: USB_SERIAL relies on usb_bus never being consumed. usb_bus MUST continue to be in scope for the lifetime of the program.
-    let usb_bus = configure_usb_bus(registers.USBCTRL_REGS, registers.USBCTRL_DPRAM, &mut registers.RESETS, clocks.usb_clock);
-
-    // Upgrade the lifetime of the USB bus reference to static so we can store USB_SERIAL in a static variable and print anywhere.
-    // DO NOT DO THIS unless you understand exactly what this entails.
-    // Safety: main never returns, so usb_bus (and thus our reference to it) is effectively static.
-    // We are single-threaded so no references to the bus could outlive this thread. We also panic-abort, so no stack unwinding can occur.
-    let static_usb_bus_ref: &'static UsbBusAllocator<UsbBus> = unsafe{ core::mem::transmute(&usb_bus) }; 
-    let mut usb_device = configure_usb(static_usb_bus_ref);
+    // PIO and temp sensor controller
+    let pio_state_machines = lmt01::configure_pios_for_lmt01(registers.PIO0, registers.PIO1, &mut registers.RESETS, &temp_sense);
+    let mut temp_sensors = TempSensors::new(temp_power, temp_sense, pio_state_machines);
 
     // Write controls for SD card. false when transmissions are complete, for now
     let mut write_to_sd = false;
