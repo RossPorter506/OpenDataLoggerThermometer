@@ -3,7 +3,7 @@ use embedded_sdmmc::*;
 use rp_pico::{hal::{clocks::PeripheralClock, rtc::RealTimeClock, spi::Enabled, Clock, Spi, Timer}, pac::SPI0};
 use rp_pico::hal::fugit::RateExtU32;
 
-use crate::pcb_mapping::{SdCardCs, SdCardMiso, SdCardMosi, SdCardSck, SdCardExtraPins};
+use crate::{eprintln, pcb_mapping::{SdCardCs, SdCardExtraPins, SdCardMiso, SdCardMosi, SdCardSck}};
 
 
 pub struct SdManager {
@@ -45,6 +45,7 @@ impl SdManager {
             self.file = Some(file);
             return;
         }
+        eprintln!("Could not open file: '{}'", name);
     }
 
     /// Whether we have a particular file open at the moment

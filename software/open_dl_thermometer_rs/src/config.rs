@@ -19,8 +19,6 @@ impl Config {
     }
 }
 #[derive(Default, PartialEq)]
-// TODO: Maybe define this based on the system state? Seems like we're duplicating logic here
-/// Whether we are currently polling temperatures or not
 pub enum Status {
     #[default]
     /// Not sampling sensors
@@ -59,16 +57,26 @@ impl Default for SDConfig {
             safe_to_remove: false,
             free_space_bytes: 0,
             filetype: Filetype::Csv,
-            filename: [b'\0'; FILENAME_MAX_LEN],
+            filename: [b' '; FILENAME_MAX_LEN],
         }
     }
 }
 impl SDConfig {
+    /// Whether SD card configuration is complete: Either not selected for use, or selected and ready.
     pub fn configuration_complete(&self) -> bool {
         !self.selected_for_use || (self.card_detected && self.card_writable && self.card_formatted)
     }
+    /// Reset card information. Note: This only resets information related to the inserted SD card, not system settings like whether the SD card is selected for use, the chosen filename, etc
+    pub fn reset_card_information(&mut self) {
+        self.card_detected = false;
+        self.card_writable = false;
+        self.card_formatted = false;
+        self.free_space_bytes = 0;
+        self.safe_to_remove = false;
+    }
 }
 
+// TODO: Actually format output differently depending on filetype
 /// SD card file type info
 pub enum Filetype {
     Csv, // comma separated
@@ -84,11 +92,11 @@ impl Filetype {
             Raw => Csv,
         }
     }
-    pub fn as_str(&self) -> [u8;3] {
-        match self {
-            Filetype::Csv => *b"CSV",
-            Filetype::Tsv => *b"TSV",
-            Filetype::Raw => *b"RAW",
+    pub fn as_str(&self) -> &str {
+            match self {
+            Filetype::Csv => "CSV",
+            Filetype::Tsv => "TSV",
+            Filetype::Raw => "RAW",
         }
     }
 }

@@ -2,16 +2,18 @@ use core::cell::RefCell;
 
 use critical_section::Mutex;
 use rp_pico::hal::{timer::Instant, usb::UsbBus};
+use to_arraystring::ToArrayString;
 use ufmt::uWrite;
 use usb_device::UsbError;
-use usbd_serial::{SerialPort, embedded_io::Write};
-use arrayvec::ArrayVec;
+use usbd_serial::SerialPort;
+use arrayvec::ArrayString;
 
-use crate::{lmt01::CHARS_PER_READING, NUM_SENSOR_CHANNELS};
+use crate::{display::DisplayValues, lmt01::CHARS_PER_READING, NUM_SENSOR_CHANNELS};
 
 /// USB serial object used for printing
 pub static USB_SERIAL: Mutex<RefCell<Option<SerialPort<'static, UsbBus>>>> = Mutex::new(RefCell::new(None));
 
+/// Standard printing
 #[macro_export]
 macro_rules! println {
     ($first:tt $(, $( $rest:tt )* )?) => {
@@ -19,13 +21,72 @@ macro_rules! println {
         ufmt::uwriteln!(&mut stand_in, $first, $( $($rest)* )*).ok()
     };
 }
-
-
+/// Standard printing
 #[macro_export]
 macro_rules! print {
     ($first:tt $(, $( $rest:tt )* )?) => {
         let mut stand_in = $crate::serial::Dummy{};
         ufmt::uwrite!(&mut stand_in, $first, $( $($rest)* )*).ok()
+    };
+}
+
+/// Error printing
+#[macro_export]
+macro_rules! eprintln {
+    ($first:tt $(, $( $rest:tt )* )?) => {
+        $crate::print!("# "); $crate::println!($first, $( $($rest)* )*)
+    };
+}
+/// Error printing
+#[macro_export]
+macro_rules! eprint {
+    ($first:tt $(, $( $rest:tt )* )?) => {
+        $crate::print!("# "); $crate::print!($first, $( $($rest)* )*)
+    };
+}
+
+/// Warning printing
+#[macro_export]
+macro_rules! wprintln {
+    ($first:tt $(, $( $rest:tt )* )?) => {
+        $crate::print!("? "); $crate::println!($first, $( $($rest)* )*)
+    };
+}
+/// Warning printing
+#[macro_export]
+macro_rules! wprint {
+    ($first:tt $(, $( $rest:tt )* )?) => {
+        $crate::print!("? "); $crate::print!($first, $( $($rest)* )*)
+    };
+}
+
+/// Info printing
+#[macro_export]
+macro_rules! iprintln {
+    ($first:tt $(, $( $rest:tt )* )?) => {
+        $crate::print!("/ "); $crate::println!($first, $( $($rest)* )*)
+    };
+}
+/// Info printing
+#[macro_export]
+macro_rules! iprint {
+    ($first:tt $(, $( $rest:tt )* )?) => {
+        $crate::print!("/ "); $crate::print!($first, $( $($rest)* )*)
+    };
+}
+
+/// Debug printing
+#[macro_export]
+macro_rules! dprintln {
+    ($first:tt $(, $( $rest:tt )* )?) => {
+        $crate::print!("- "); $crate::println!($first, $( $($rest)* )*)
+    };
+}
+/// Debug printing
+#[macro_export]
+macro_rules! dprint {
+    ($first:tt $(, $( $rest:tt )* )?) => {
+        $crate::print!("- "); $crate::print!($first, $( $($rest)* )*)
     };
 }
 
@@ -76,35 +137,21 @@ pub enum UsbSerialPrintError {
     OtherError(UsbError),
 }
 
-pub const MAX_TIMESTAMP_LEN: usize = count_digits(u64::MAX/1000);
-/// {ts},{s1},{s2},{s3},{s4},{s5},{s6},{s7},{s8},;
-pub const MAX_SNAPSHOT_LEN: usize = (MAX_TIMESTAMP_LEN+1) + NUM_SENSOR_CHANNELS*(CHARS_PER_READING+1) + 1;
+pub const MAX_TIMESTAMP_LEN: usize = (u64::MAX/1000).ilog10() as usize + 1;
+/// {ts},{s1},{s2},{s3},{s4},{s5},{s6},{s7},{s8},;\n
+pub const MAX_SNAPSHOT_LEN: usize = (MAX_TIMESTAMP_LEN+1) + NUM_SENSOR_CHANNELS*(CHARS_PER_READING+1) + 2;
 /// Serialise timestamp and sensor values into a single string for transmission
-pub fn serialise_snapshot(timestamp: Instant, sensor_readings: &[Option<[u8; CHARS_PER_READING]>; NUM_SENSOR_CHANNELS]) -> ArrayVec<u8, MAX_SNAPSHOT_LEN> {
-    let mut snapshot = ArrayVec::new();
+pub fn serialise_snapshot(timestamp: Instant, sensor_readings: &DisplayValues) -> ArrayString<MAX_SNAPSHOT_LEN> {
+    let mut snapshot = ArrayString::new();
     let timestamp_millis = timestamp.ticks()/1000;
-    snapshot.extend(u64_to_arrayvec_u8(timestamp_millis));
-    snapshot.extend([b',']);
-    for &reading in sensor_readings {
-        if let Some(reading) = reading {
-            snapshot.extend(reading);
+    snapshot.push_str(&timestamp_millis.to_arraystring());
+    snapshot.push_str(",");
+    for opt_reading in sensor_readings {
+        if let Some(reading) = opt_reading {
+            snapshot.push_str(reading);
         }
-        snapshot.extend([b',']);
+        snapshot.push_str(",");
     }
-    snapshot.extend([b';']);
+    snapshot.push_str(";\n");
     snapshot
-}
-fn u64_to_arrayvec_u8(n: u64) -> ArrayVec<u8, {count_digits(u64::MAX)}> {
-    let mut v = ArrayVec::new();
-    write!(v.as_mut_slice(), "{n}").unwrap();
-    v
-}
-const fn count_digits(mut n: u64) -> usize {
-    let mut count = 0;
-    if n == 0 { return 1; }
-    while n > 0 {
-        n /= 10;
-        count += 1;
-    }
-    count
 }

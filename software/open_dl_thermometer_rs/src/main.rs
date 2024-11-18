@@ -21,9 +21,9 @@ use serial::MAX_SNAPSHOT_LEN;
 use usb_device::{class_prelude::*, prelude::*};
 use usbd_serial::SerialPort;
 
-use arrayvec::ArrayVec;
+use arrayvec::ArrayString;
 use atomic_enum::atomic_enum;
-use alloc::string::String;
+use alloc::string::{String, ToString};
 
 mod config; use config::{Config, Status::*};
 mod constants; use constants::*;
@@ -157,12 +157,12 @@ fn main() -> ! {
 
         // Deal with SD card
         if write_to_sd {
-            sd_manager.write_bytes(&buffers.spi);
+            sd_manager.write_bytes(buffers.spi.as_bytes());
             todo!();
         }
 
         // Serial
-        manage_serial_comms(&mut usb_device, &mut buffers.serial);
+        buffers.serial = manage_serial_comms(&mut usb_device, buffers.serial);
 
         // Service events and update available state, if required
         if let Some(update_reason) = update_available {
@@ -182,10 +182,7 @@ fn main() -> ! {
 fn monitor_sdcard_state(sd_manager: &mut crate::SdManager, config: &mut Config, update_available: &mut Option<UpdateReason>, peripheral_clock: &PeripheralClock) {
     let sd_present = sd_manager.is_card_detected();
     if config.sd.card_detected && !sd_present { // SD card removed
-        config.sd.card_detected = false;
-        config.sd.card_writable = false;
-        config.sd.card_formatted = false;
-        config.sd.free_space_bytes = 0;
+        config.sd.reset_card_information();
 
         if config.sd.safe_to_remove {
             // SD card removed safely
@@ -211,7 +208,9 @@ fn monitor_sdcard_state(sd_manager: &mut crate::SdManager, config: &mut Config, 
         todo!();
     }
     if config.status == SamplingAndDatalogging && !sd_manager.ready_to_write() {
-        sd_manager.open_file(&String::from_utf8_lossy(&config.sd.filename));
+        let file_extension = alloc::format!(".{}", config.sd.filetype.as_str());
+        let filename = String::from_utf8_lossy(&config.sd.filename).trim().to_string() + &file_extension;
+        sd_manager.open_file(&filename);
     }
     else if config.status != SamplingAndDatalogging && !sd_manager.ready_to_remove() {
         // We don't need to write to the card if we're not datalogging, so make it safe to remove just in case the user removes it.
@@ -224,15 +223,15 @@ struct Buffers {
     /// Most recent sensor values, used by the display. ASCII
     display: display::DisplayValues,
     /// We store values until we're at least as large as the block size of the SD card block size. ASCII.
-    spi: ArrayVec::<u8, {MAX_SNAPSHOT_LEN*11}>, // 11 is arbitrary. Gets us to 91*11 = 1001 bytes, with a 512 block size it's pretty close to 2 blocks
+    spi: ArrayString::<{MAX_SNAPSHOT_LEN*11}>, // 11 is arbitrary. Gets us to 91*11 = 1001 bytes, with a 512 block size it's pretty close to 2 blocks
     /// We will write to serial as we receive, so buffer need only be big enough for one lot of readings. ASCII.
-    serial: ArrayVec::<u8, {MAX_SNAPSHOT_LEN}>,
+    serial: ArrayString::<MAX_SNAPSHOT_LEN>,
 }
 impl Buffers {
     pub fn new() -> Self {
         let display = [None; NUM_SENSOR_CHANNELS];
-        let spi = ArrayVec::new();
-        let serial = ArrayVec::new();
+        let spi = ArrayString::new();
+        let serial = ArrayString::new();
         Self {display, spi, serial}
     }
 }
@@ -250,8 +249,10 @@ fn read_sensors(temp_sensors: &mut TempSensors,
     let serialised_snapshot = serial::serialise_snapshot(system_timer.get_counter(), &buffers.display);
     
     if config.sd.selected_for_use {
-        // TODO: Error handling
-        buffers.spi.try_extend_from_slice(&serialised_snapshot);
+        if buffers.spi.try_push_str(&serialised_snapshot).is_err() {
+            eprintln!("SPI buffer overfull! Dropping data: {}", serialised_snapshot.as_str());
+            *write_to_sd = true;
+        }
         if buffers.spi.is_full() { *write_to_sd = true; }
     }
 
@@ -272,21 +273,22 @@ fn start_next_sensor_reading(temp_sensors: &mut TempSensors, sensors_ready_timer
 }
 
 /// Try to send data over serial.
-fn manage_serial_comms(usb_device: &mut UsbDevice<UsbBus>, serial_buffer: &mut ArrayVec::<u8, {MAX_SNAPSHOT_LEN}>) {
+fn manage_serial_comms(usb_device: &mut UsbDevice<UsbBus>, serial_buffer: ArrayString::<MAX_SNAPSHOT_LEN>) -> ArrayString::<MAX_SNAPSHOT_LEN>{
     // We don't care what gets sent to us, but we need to poll anyway to stay USB compliant
     // Try to send everything we have
-    critical_section::with(|cs| {
+    critical_section::with(|cs| -> ArrayString::<MAX_SNAPSHOT_LEN> {
         let Some(mut serial) = serial::USB_SERIAL.take(cs) else { unreachable!() };
         if !serial_buffer.is_empty() && usb_device.poll(&mut [&mut serial]) {
             use serial::UsbSerialPrintError::*;
-            match serial::nonblocking_print(serial_buffer.as_slice()) {
+            match serial::nonblocking_print(serial_buffer.as_bytes()) {
                 // Remove whatever was successfully sent from our buffer
-                Err(WouldBlock(len)) => serial_buffer.drain(0..len),
+                Err(WouldBlock(len)) => return ArrayString::from(&serial_buffer[len..]).unwrap_or_else(|_| unreachable!()),
                 Err(OtherError(a)) => panic!("{a:?}"),
-                Ok(()) => return,
+                Ok(()) => return serial_buffer,
             };
         }
-    });
+        serial_buffer
+    })
 }
 
 /// Update system configuration according to button presses.
@@ -342,6 +344,7 @@ fn cycle_ascii_char(char: &mut u8) {
         b'a'..=b'y' => *char + 1,
         b'z' => b'0',
         b'0'..=b'8' => *char + 1,
+        b'9' => b' ',
         _ => b'a',
     };
 }

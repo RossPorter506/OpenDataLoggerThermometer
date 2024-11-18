@@ -1,4 +1,4 @@
-use arrayvec::ArrayVec;
+use arrayvec::{ArrayString, ArrayVec};
 use liquid_crystal::BusBits::Bus4Bits;
 use liquid_crystal::LCD20X4;
 
@@ -79,7 +79,7 @@ type Line = [u8; SCREEN_COLS];
 type Screen = [Line; SCREEN_ROWS];
 
 /// The sensor values we display on the screen. Not all channels may be producing values, hence `Option`.
-pub type DisplayValues = [Option<[u8; CHARS_PER_READING]>; NUM_SENSOR_CHANNELS];
+pub type DisplayValues = [Option<ArrayString<CHARS_PER_READING>>; NUM_SENSOR_CHANNELS];
 
 /// Placeholder for elements that may change based on configuration or system state.
 /// Designed to be overwritten at runtime with actual values.
@@ -320,7 +320,7 @@ fn substitute_dynamic_elements(screen: &mut Screen, config: &Config, sensor_valu
             for opt_value in sensor_values {
                 // Truncate the sensor reading to fit on the display and reappend the 'C' on the end, if enabled
                 let sensor_str: Vec<u8> = if let Some(sensor_value) = opt_value {
-                    let mut v = sensor_value[..NUM_DISP_CHARS-1].to_vec(); 
+                    let mut v = Vec::from(&sensor_value[..NUM_DISP_CHARS-1]); 
                     v.push(b'C'); 
                     v
                 } 

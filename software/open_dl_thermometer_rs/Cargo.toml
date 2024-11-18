@@ -28,6 +28,7 @@ critical-section = "1.2"
 
 # Buffers
 arrayvec = {version = "0.7", default-features = false}
+to-arraystring = "0.2"
 
 # USB Serial printing
 usb-device = "0.3"

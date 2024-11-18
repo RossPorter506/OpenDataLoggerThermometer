@@ -1,3 +1,4 @@
+use arrayvec::ArrayString;
 use rp_pico::{hal::pio::{InstalledProgram, PIOExt, UninitStateMachine}, pac};
 
 use crate::{constants::*, pcb_mapping::{TempPowerPins, TempSensePins}, pio::{AllPioStateMachines, PioStateMachine}};
@@ -97,7 +98,7 @@ pub const CHARS_PER_READING: usize = 8;
 /// Output: `[u8;8]`, e.g. `b"-50.012C"`, `b"  2.901C"`, `b"234.750C"`
 /// 
 /// If input is `None` output is `b"        "`
-pub fn temp_to_string(tempr: Option<i32>) -> Option<[u8; CHARS_PER_READING]> {
+pub fn temp_to_string(tempr: Option<i32>) -> Option<ArrayString<CHARS_PER_READING>> {
     let tempr = tempr?;
     let mut out = [0u8; CHARS_PER_READING];
 
@@ -130,7 +131,7 @@ pub fn temp_to_string(tempr: Option<i32>) -> Option<[u8; CHARS_PER_READING]> {
         out[i.saturating_sub(1)] = b'-';
     }
     
-    Some(out)
+    ArrayString::from_byte_string(&out).ok()
 }
 
 /// Look up table entry
