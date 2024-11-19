@@ -139,18 +139,18 @@ fn main() -> ! {
         let mut update_available: Option<UpdateReason> = None;
 
         // Monitor sensors
-        if SENSOR_READINGS_AVAILABLE.load(Ordering::Relaxed) {
+        if SENSOR_READINGS_AVAILABLE.get() {
             read_sensors(&mut temp_sensors, &mut buffers, &config, &mut sample_rate_timer, &mut write_to_sd, &mut system_timer);
             update_available = Some(UpdateReason::NewSensorValues);
         }
         
-        if READY_TO_START_NEXT_READING.load(Ordering::Relaxed) {
+        if READY_TO_START_NEXT_READING.get() {
             start_next_sensor_reading(&mut temp_sensors, &mut sensors_ready_timer);
         }
 
         // Check for button presses. This does override the `update_available` value from the above sensor readings, but
         // button presses always prompt a screen redraw anyway, so any new sensor values will be displayed regardless. 
-        update_available = match BUTTON_STATE.load(Ordering::Relaxed) {
+        update_available = match BUTTON_STATE.get() {
             ButtonState::NextButton => Some(UpdateReason::NextButton),
             ButtonState::SelectButton => Some(UpdateReason::SelectButton),
             _ => update_available, // no change
@@ -254,7 +254,7 @@ fn read_sensors(temp_sensors: &mut TempSensors,
         buffers.serial = serialised_snapshot;
     }
 
-    SENSOR_READINGS_AVAILABLE.store(false, Ordering::Relaxed);
+    SENSOR_READINGS_AVAILABLE.set(false);
     sample_rate_timer.clear_interrupt(); // Clear the interrupt flag for the 125ms timer. Should be done in the PWM interrupt, but this is good enough 
 }
 
@@ -263,7 +263,7 @@ fn start_next_sensor_reading(temp_sensors: &mut TempSensors, sensors_ready_timer
     temp_sensors.begin_conversion();
     sensors_ready_timer.clear_interrupt(); // Clear the interrupt flag for the 105ms timer. Should be done in the TIMER0 interrupt, but this is good enough 
     let _ = sensors_ready_timer.schedule((lmt01::SENSOR_MAX_TIME_FOR_READING_MS+1).millis());
-    READY_TO_START_NEXT_READING.store(false, Ordering::Relaxed);
+    READY_TO_START_NEXT_READING.set(false);
 }
 
 /// Try to send data over serial.
@@ -314,7 +314,7 @@ fn service_button_event(config: &mut Config, update_reason: &UpdateReason) {
         ConfigChannelSelect(ConChanSel::Next)   => (), // don't accidentally capture this case in the catch-all `ch_num` pattern below.
         ConfigChannelSelect(ch_num)             => config.enabled_channels[*ch_num as usize] ^= true, // selected channels 1-8
 
-        ConfigSampleRate(SampleRate)            => {cycle_sample_rate(&mut config.samples_per_sec); WRAPS_PER_SAMPLE.store(8/config.samples_per_sec, Ordering::Relaxed);},
+        ConfigSampleRate(SampleRate)            => {cycle_sample_rate(&mut config.samples_per_sec); WRAPS_PER_SAMPLE.set(8/config.samples_per_sec);},
         ConfigSampleRate(ConRateSel::Next)      => (),
 
         DatalogConfirmStop(ConfirmStop)         => (),
@@ -358,7 +358,7 @@ static SENSOR_READINGS_AVAILABLE: AtomicBool = AtomicBool::new(false);
 // Interrupt fires 105ms after sensors are reset, values should be ready now.
 #[interrupt]
 fn TIMER_IRQ_0() {
-    SENSOR_READINGS_AVAILABLE.store(true, Ordering::Relaxed);
+    SENSOR_READINGS_AVAILABLE.set(true);
 }
 
 /// How many times the 8Hz PWM interrupt must trigger per sample of the sensors, e.g.
@@ -373,13 +373,12 @@ static READY_TO_START_NEXT_READING: AtomicBool = AtomicBool::new(false);
 fn PWM_IRQ_WRAP() {
     static NUM_WRAPS: AtomicU8 = AtomicU8::new(1);
     
-    if NUM_WRAPS.load(Ordering::Relaxed) == WRAPS_PER_SAMPLE.load(Ordering::Relaxed) {
-        READY_TO_START_NEXT_READING.store(true, Ordering::Relaxed);
-        NUM_WRAPS.store(1, Ordering::Relaxed);
+    if NUM_WRAPS.get() == WRAPS_PER_SAMPLE.get() {
+        READY_TO_START_NEXT_READING.set(true);
+        NUM_WRAPS.set(1);
     }
-    else { NUM_WRAPS.store(NUM_WRAPS.load(Ordering::Relaxed)+1, Ordering::Relaxed); }
+    else { NUM_WRAPS.set(NUM_WRAPS.get()+1); }
 }
-
 
 /// Whether any buttons have been pressed
 static BUTTON_STATE: AtomicButtonState = AtomicButtonState::new(ButtonState::None);
@@ -392,9 +391,9 @@ fn IO_IRQ_BANK0() {
     critical_section::with(|cs| {
         if let Some(buttons) = BUTTON_PINS.take(cs) {
             if buttons.select.interrupt_status(gpio::Interrupt::EdgeLow) {
-                BUTTON_STATE.store(ButtonState::SelectButton, Ordering::Relaxed);
+                BUTTON_STATE.set(ButtonState::SelectButton);
             } else if buttons.next.interrupt_status(gpio::Interrupt::EdgeLow) {
-                BUTTON_STATE.store(ButtonState::NextButton, Ordering::Relaxed);
+                BUTTON_STATE.set(ButtonState::NextButton);
             }
         }
     });
@@ -555,3 +554,24 @@ fn configure_usb(usb_bus: &'static UsbBusAllocator<UsbBus>) -> UsbDevice<'static
 
     usb_dev
 }
+
+/// Convenience trait for relaxed atomic reads/writes.
+trait RelaxedIO {
+    type Inner;
+    /// Gets the inner value, relaxed ordering
+    fn get(&self) -> Self::Inner;
+    /// Sets the inner value, relaxed ordering
+    fn set(&self, val: Self::Inner);
+}
+macro_rules! impl_relaxedio_for {
+    ($type: ty, $inner: ty) => {
+        impl RelaxedIO for $type {
+            type Inner = $inner;
+            fn get(&self) -> Self::Inner { self.load(Ordering::Relaxed) }
+            fn set(&self, val: Self::Inner) { self.store(val, Ordering::Relaxed); }
+        }
+    };
+}
+impl_relaxedio_for!(AtomicU8, u8);
+impl_relaxedio_for!(AtomicBool, bool);
+impl_relaxedio_for!(AtomicButtonState, ButtonState);
