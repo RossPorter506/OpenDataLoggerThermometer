@@ -41,38 +41,14 @@ pub struct SDConfig {
     pub selected_for_use: bool,
     pub filename: [u8; FILENAME_MAX_LEN],
     pub filetype: Filetype,
-    pub card_detected: bool,
-    pub card_writable: bool,
-    pub card_formatted: bool,
-    pub free_space_bytes: u64,
-    pub safe_to_remove: bool,
 }
 impl Default for SDConfig {
     fn default() -> Self {
         Self {
             selected_for_use: false,
-            card_detected: false,
-            card_writable: false,
-            card_formatted: false,
-            safe_to_remove: false,
-            free_space_bytes: 0,
             filetype: Filetype::Csv,
             filename: [b' '; FILENAME_MAX_LEN],
         }
-    }
-}
-impl SDConfig {
-    /// Whether SD card configuration is complete: Either not selected for use, or selected and ready.
-    pub fn configuration_complete(&self) -> bool {
-        !self.selected_for_use || (self.card_detected && self.card_writable && self.card_formatted)
-    }
-    /// Reset card information. Note: This only resets information related to the inserted SD card, not system settings like whether the SD card is selected for use, the chosen filename, etc
-    pub fn reset_card_information(&mut self) {
-        self.card_detected = false;
-        self.card_writable = false;
-        self.card_formatted = false;
-        self.free_space_bytes = 0;
-        self.safe_to_remove = false;
     }
 }
 

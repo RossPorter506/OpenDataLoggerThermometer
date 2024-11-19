@@ -23,7 +23,7 @@ use usbd_serial::SerialPort;
 
 use arrayvec::ArrayString;
 use atomic_enum::atomic_enum;
-use alloc::string::{String, ToString};
+use alloc::string::String;
 
 mod config; use config::{Config, Status::*};
 mod constants; use constants::*;
@@ -54,7 +54,7 @@ use state_machine::{
 extern crate alloc;
 
 /* TODO:
-Display driver
+Display driver: Custom chars
 SD card driver
 Determine when SD card is safe to remove
 Maybe wrap everything up into a nice struct
@@ -90,10 +90,8 @@ fn main() -> ! {
     // Timers
     let (mut system_timer, mut sample_rate_timer, mut sensors_ready_timer) = configure_timers(registers.PWM, registers.TIMER, &mut registers.RESETS, &clocks);
 
-    // I2C and Display
+    // I2C
     let mut i2c = configure_i2c(registers.I2C0, display_pins, &mut registers.RESETS, &clocks);
-    let mut display_manager = IncrementalDisplayWriter::new(&config, &mut i2c);
-    display_manager.load_custom_chars(&mut system_timer);
 
     // SPI
     let spi_bus = configure_spi(registers.SPI0, sdcard_pins.spi, &mut registers.RESETS, &clocks);
@@ -114,6 +112,12 @@ fn main() -> ! {
 
     // SD card manager
     let mut sd_manager = crate::sd_card::SdManager::new(spi_bus, sdcard_pins.cs, system_timer, sdcard_pins.extra, rtc);
+    // What the insertion state of the SD card was in the previous loop. Used to compare for insertions/removals.
+    let mut sd_prev_insert_state = false;
+
+    // Display
+    let mut display_manager = IncrementalDisplayWriter::new(&config, sd_manager.get_card_info(), &mut i2c);
+    display_manager.load_custom_chars(&mut system_timer);
 
     // PIO and temp sensor controller
     let pio_state_machines = lmt01::configure_pios_for_lmt01(registers.PIO0, registers.PIO1, &mut registers.RESETS, &temp_sense);
@@ -153,12 +157,13 @@ fn main() -> ! {
         };
 
         // Check if the card is inserted or removed
-        monitor_sdcard_state(&mut sd_manager, &mut config, &mut update_available, &clocks.peripheral_clock);
+        monitor_sdcard_state(sd_prev_insert_state, &mut sd_manager, &mut config, &mut update_available, &clocks.peripheral_clock);
+        sd_prev_insert_state = sd_manager.is_card_inserted();
 
         // Deal with SD card
         if write_to_sd {
             sd_manager.write_bytes(buffers.spi.as_bytes());
-            todo!();
+            write_to_sd = false;
         }
 
         // Serial
@@ -169,7 +174,7 @@ fn main() -> ! {
             service_button_event(&mut config, &update_reason);
             state_machine::next_state(&mut config, &mut sd_manager, &update_reason);
             state_machine::state_outputs(&mut config);
-            display_manager.determine_new_screen(&mut system_timer, &config, buffers.display);
+            display_manager.determine_new_screen(&mut system_timer, &config, sd_manager.get_card_info(), buffers.display);
             if config.status == Idle { sample_rate_timer.disable(); } else { sample_rate_timer.enable(); }
         }
 
@@ -179,42 +184,31 @@ fn main() -> ! {
 }
 
 /// Listen for an SD card being inserted or removed and initialise, if required
-fn monitor_sdcard_state(sd_manager: &mut crate::SdManager, config: &mut Config, update_available: &mut Option<UpdateReason>, peripheral_clock: &PeripheralClock) {
-    let sd_present = sd_manager.is_card_detected();
-    if config.sd.card_detected && !sd_present { // SD card removed
-        config.sd.reset_card_information();
+fn monitor_sdcard_state(sd_was_inserted: bool, sd_manager: &mut crate::SdManager, config: &mut Config, update_available: &mut Option<UpdateReason>, peripheral_clock: &PeripheralClock) {
+    let sd_just_removed = sd_was_inserted && !sd_manager.is_card_inserted();
+    let sd_just_added = !sd_was_inserted && sd_manager.is_card_inserted();
+    if sd_just_removed { // SD card removed
 
-        if config.sd.safe_to_remove {
-            // SD card removed safely
-            // Anything extra to do here?
-            todo!();
-        }
-        else {
+        if !sd_manager.ready_to_remove() {
             // SD card removed unexpectedly
             // Move to SD card error screen
             *update_available = Some(UpdateReason::SDRemovedUnexpectedly);
             sd_manager.reset_after_unexpected_removal();
-            todo!();
         }
-        return;
     }
-    else if !config.sd.card_detected && sd_present { // SD card inserted
+    else if sd_just_added { // SD card inserted
         sd_manager.initialise_card(peripheral_clock);
+    }
 
-        config.sd.card_detected = true;
-        config.sd.card_writable = sd_manager.is_card_writable();
-        config.sd.card_formatted = sd_manager.is_card_formatted();
-        config.sd.free_space_bytes = sd_manager.get_free_space_bytes();
-        todo!();
-    }
+    // Beginning to datalog
     if config.status == SamplingAndDatalogging && !sd_manager.ready_to_write() {
-        let file_extension = alloc::format!(".{}", config.sd.filetype.as_str());
-        let filename = String::from_utf8_lossy(&config.sd.filename).trim().to_string() + &file_extension;
-        sd_manager.open_file(&filename);
+        let filename = alloc::format!("{}.{}", String::from_utf8_lossy(&config.sd.filename), config.sd.filetype.as_str());
+        sd_manager.open_file(&filename); // TODO: Ensure this function makes ready_to_write() return true.
     }
+    // Just stopped datalogging
     else if config.status != SamplingAndDatalogging && !sd_manager.ready_to_remove() {
         // We don't need to write to the card if we're not datalogging, so make it safe to remove just in case the user removes it.
-        sd_manager.prepare_for_removal();
+        sd_manager.prepare_for_removal(); // TODO: Ensure this function the ready_to_remove() return true.
     }
 }
 

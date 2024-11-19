@@ -163,7 +163,8 @@ pub fn next_state(config: &mut crate::config::Config, sd_manager: &mut SdManager
         }
 
         ConfigSDStatus(ConSDStat::Next)         => {
-            if config.sd.configuration_complete() { ConfigSDFilename(d::default()) } 
+            let sd_configuration_complete = !config.sd.selected_for_use || ( sd_manager.is_card_inserted() && sd_manager.is_card_writable() && sd_manager.is_card_formatted() );
+            if sd_configuration_complete { ConfigSDFilename(d::default()) } 
             else { ConfigSDStatus(d::default()) }},
 
         ConfigSDFilename(ConSDName::Next)       => ConfigChannelSelect(d::default()),

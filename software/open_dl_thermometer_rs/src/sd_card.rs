@@ -45,6 +45,7 @@ impl SdManager {
             self.file = Some(file);
             return;
         }
+        // TODO: Error handling
         eprintln!("Could not open file: '{}'", name);
     }
 
@@ -87,7 +88,7 @@ impl SdManager {
     }
 
     /// Whether the SD card is physically present in the SD card slot
-    pub fn is_card_detected(&mut self) -> bool {
+    pub fn is_card_inserted(&mut self) -> bool {
         let Ok(detected) = self.extra_pins.card_detect.is_low();
         detected
     }
@@ -113,14 +114,34 @@ impl SdManager {
 
     /// Whether we are ready to write data to the SD card 
     pub fn ready_to_write(&mut self) -> bool {
-        self.is_card_detected() && self.is_card_writable() && self.is_file_open()
+        self.is_card_inserted() && self.is_card_writable() && self.is_file_open()
     }
 
     /// Whether the card is ready to be removed safely
     pub fn ready_to_remove(&mut self) -> bool {
         todo!()
     }
+
+    pub fn get_card_info(&mut self) -> SdCardInfo {
+        let is_inserted = self.is_card_inserted();
+        if !is_inserted {
+            return SdCardInfo::default();
+        }
+        SdCardInfo {is_inserted, is_writable: Some(self.is_card_writable()), 
+            is_formatted: Some(self.is_card_formatted()), 
+            free_space_bytes: Some(self.get_free_space_bytes())
+        }
+    }
 }
+
+#[derive(Default)]
+pub struct SdCardInfo {
+    pub is_inserted: bool,
+    pub is_writable: Option<bool>,
+    pub is_formatted: Option<bool>,
+    pub free_space_bytes: Option<u64>,
+}
+
 
 /// Wrapper layer that implements embedded_hal SpiDevice for the rp2040-hal SPI bus (confusingly also called SpiDevice)
 struct SDCardSPIDriver {

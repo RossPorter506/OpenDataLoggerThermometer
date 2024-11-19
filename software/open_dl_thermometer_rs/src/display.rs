@@ -4,6 +4,7 @@ use liquid_crystal::LCD20X4;
 
 use crate::config::Config;
 use crate::pcb_mapping::{DisplayScl, DisplaySda};
+use crate::sd_card::SdCardInfo;
 use crate::{lmt01::CHARS_PER_READING, NUM_SENSOR_CHANNELS};
 
 pub const DISPLAY_I2C_ADDRESS: u8 = 0x27;
@@ -15,9 +16,9 @@ pub struct IncrementalDisplayWriter<'a, T:rp_pico::hal::i2c::I2cDevice> {
     driver: liquid_crystal::LiquidCrystal<'a, liquid_crystal::I2C<rp_pico::hal::I2C<T, (DisplaySda, DisplayScl)>>, {SCREEN_COLS as u8}, SCREEN_ROWS>,
 }
 impl<'a, T:rp_pico::hal::i2c::I2cDevice> IncrementalDisplayWriter<'a, T> {
-    pub fn new(config: &Config, liquid_crystal_i2c_interface: &'a mut liquid_crystal::I2C<rp_pico::hal::I2C<T, (DisplaySda, DisplayScl)>>) -> Self {
+    pub fn new(config: &Config, sdcard_info: SdCardInfo, liquid_crystal_i2c_interface: &'a mut liquid_crystal::I2C<rp_pico::hal::I2C<T, (DisplaySda, DisplayScl)>>) -> Self {
         let driver = liquid_crystal::LiquidCrystal::new(liquid_crystal_i2c_interface, Bus4Bits, LCD20X4);
-        Self {screen: determine_screen(config, [None;NUM_SENSOR_CHANNELS]).0, next_pos: Some((0,0)), driver}
+        Self {screen: determine_screen(config, sdcard_info, [None;NUM_SENSOR_CHANNELS]).0, next_pos: Some((0,0)), driver}
     }
     /// If the display isn't up to date then send one character to the display.
     /// 
@@ -45,8 +46,8 @@ impl<'a, T:rp_pico::hal::i2c::I2cDevice> IncrementalDisplayWriter<'a, T> {
     /// Determine what the screen should look like based on system state, then update the internal display buffer.
     /// 
     /// Does not actually redraw the display. You must call `incremental_update()`
-    pub fn determine_new_screen(&mut self, delay: &mut impl liquid_crystal::DelayNs, config: &Config, sensor_values: DisplayValues) {
-        let (screen, cursor_pos) = determine_screen(config, sensor_values);
+    pub fn determine_new_screen(&mut self, delay: &mut impl liquid_crystal::DelayNs, config: &Config, sdcard_info: SdCardInfo, sensor_values: DisplayValues) {
+        let (screen, cursor_pos) = determine_screen(config, sdcard_info, sensor_values);
         self.update_display_buffer(screen);
 
         // Set up cursor if needed
@@ -270,17 +271,23 @@ fn int_to_vec_u8(n: usize) -> Vec<u8> {
 }
 
 trait ToStr { fn to_str(&self) -> Vec<u8>; }
-impl ToStr for bool {
+impl<T: ToStr> ToStr for Option<T> {
     fn to_str(&self) -> Vec<u8> {
-        if *self {b"YES"} else {b"NO "}.into()
+        match self {
+            Some(t) => t.to_str(),
+            None => b"N/A".into(),
+        }
     }
+}
+impl ToStr for bool {
+    fn to_str(&self) -> Vec<u8> {  if *self {b"YES"} else {b"NO "}.into()  }
 }
 
 use usbd_serial::embedded_io::Write;
 extern crate alloc;
 use alloc::vec::Vec;
 /// Replace dynamic placeholders with actual values
-fn substitute_dynamic_elements(screen: &mut Screen, config: &Config, sensor_values: DisplayValues) {
+fn substitute_dynamic_elements(screen: &mut Screen, config: &Config, sdcard_info: SdCardInfo, sensor_values: DisplayValues) {
     let dynamic_element_locations = find_dynamic_element_placeholders(screen);
     // Inner Vec<u8> can't be an ArrayVec because it doesn't handle different length strings correctly for some reason
     let mut dynamic_strs = ArrayVec::<Vec<u8>, MAX_DYNAMIC_ELEMENTS>::new();
@@ -290,14 +297,23 @@ fn substitute_dynamic_elements(screen: &mut Screen, config: &Config, sensor_valu
             dynamic_strs.push(config.sd.selected_for_use.to_str());
         },
         ConfigSDStatus(_) => {
-            dynamic_strs.push(config.sd.card_detected.to_str());   // SD detected
-            dynamic_strs.push(config.sd.card_writable.to_str());   // SD writable
-            dynamic_strs.push(config.sd.card_formatted.to_str());   // SD formatted
+            dynamic_strs.push(sdcard_info.is_inserted.to_str());   // SD detected
+            dynamic_strs.push(sdcard_info.is_writable.to_str());   // SD writable
+            dynamic_strs.push(sdcard_info.is_formatted.to_str());   // SD formatted
             // Free space
             const MAX_FREE_SPACE_CHARS: usize = 5;
-            let free_space_megabytes: usize = config.sd.free_space_bytes as usize / 1_000_000;
-            let free_space_str = int_to_vec_u8(free_space_megabytes);
-            dynamic_strs.push( if free_space_str.len() < MAX_FREE_SPACE_CHARS {right_align(free_space_str, MAX_FREE_SPACE_CHARS)} else {b">9999".into()} ); 
+            match sdcard_info.free_space_bytes {
+                Some(free_bytes) => {let free_space_megabytes: usize = free_bytes as usize / 1_000_000;
+                let free_space_str = int_to_vec_u8(free_space_megabytes);
+                if free_space_str.len() < MAX_FREE_SPACE_CHARS {
+                    dynamic_strs.push(right_align(free_space_str, MAX_FREE_SPACE_CHARS));
+                }
+                else {
+                    dynamic_strs.push(b">9999".into());
+                }},
+                None => dynamic_strs.push(b" N/A ".into()),
+            }
+             
         },
         ConfigSDFilename(_) => {
             dynamic_strs.push(config.sd.filename.into());
@@ -337,7 +353,7 @@ fn substitute_dynamic_elements(screen: &mut Screen, config: &Config, sensor_valu
 
 use crate::state_machine::State::*;
 /// Determine what the screen should look like based on system state
-fn determine_screen(config: &Config, sensor_values: DisplayValues) -> (Screen, Option<(usize, usize)>) {
+fn determine_screen(config: &Config, sdcard_info: SdCardInfo, sensor_values: DisplayValues) -> (Screen, Option<(usize, usize)>) {
     let (selected_element_pos, mut display_buffer) = match config.curr_state {
         Mainmenu(sel) =>                    (Some(sel as usize), MAINMENU_SCREEN),
         ConfigOutputs(sel) =>               (Some(sel as usize), CONFIG_OUTPUTS_SCREEN),
@@ -356,7 +372,7 @@ fn determine_screen(config: &Config, sensor_values: DisplayValues) -> (Screen, O
 
     let cursor_pos = substitute_selected_elements(&mut display_buffer, selected_element_pos);
     
-    substitute_dynamic_elements(&mut display_buffer, config, sensor_values);
+    substitute_dynamic_elements(&mut display_buffer, config, sdcard_info, sensor_values);
 
     (display_buffer, cursor_pos)
 }
