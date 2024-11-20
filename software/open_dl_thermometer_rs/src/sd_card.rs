@@ -59,6 +59,9 @@ impl SdManager {
         if self.file.is_some() {
             let my_file = embedded_sdmmc::filesystem::RawFile::to_file(self.file.unwrap_or_else(|| unreachable!()), &mut self.vmgr);
             let error = embedded_sdmmc::filesystem::File::close(my_file);
+            if error.is_err() {
+                eprintln!("Error closing file!");
+            }
         } else {
             eprintln!("No file open to close");
         }
@@ -66,7 +69,15 @@ impl SdManager {
 
     /// Write bytes to the opened file
     pub fn write_bytes(&mut self, bytes: &[u8]) {
-        todo!()
+        if self.file.is_none() {
+            eprintln!("No file open to write to");
+            return;
+        }
+        let mut my_file = embedded_sdmmc::filesystem::RawFile::to_file(self.file.unwrap_or_else(|| unreachable!()), &mut self.vmgr);
+        let error = embedded_sdmmc::filesystem::File::write(&mut my_file, bytes);
+        if error.is_err() {
+            eprintln!("Error writing to file!");
+        }
     }
 
     /// Whether the SD card can be safely removed right now
