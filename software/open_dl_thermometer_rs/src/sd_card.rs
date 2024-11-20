@@ -51,12 +51,20 @@ impl SdManager {
 
     /// Whether we have a particular file open at the moment
     pub fn is_file_open(&mut self) -> bool { 
-        todo!()
+        self.file.is_some()
     }
 
     /// Closes all open files
     pub fn close_file(&mut self) {
-        todo!()
+        if self.file.is_some() {
+            let my_file = embedded_sdmmc::filesystem::RawFile::to_file(self.file.unwrap_or_else(|| unreachable!()), &mut self.vmgr);
+            let error = embedded_sdmmc::filesystem::File::close(my_file);
+            if error.is_err() {
+                eprintln!("Error closing file: {:?}", error);
+            }
+        } else {
+            eprintln!("No file open to close");
+        }
     }
 
     /// Write bytes to the opened file
