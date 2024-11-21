@@ -3,7 +3,6 @@ use core::cell::RefCell;
 use critical_section::Mutex;
 use rp_pico::hal::{timer::Instant, usb::UsbBus};
 use to_arraystring::ToArrayString;
-use ufmt::uWrite;
 use usb_device::UsbError;
 use usbd_serial::SerialPort;
 use arrayvec::ArrayString;
@@ -17,16 +16,22 @@ pub static USB_SERIAL: Mutex<RefCell<Option<SerialPort<'static, UsbBus>>>> = Mut
 #[macro_export]
 macro_rules! println {
     ($first:tt $(, $( $rest:tt )* )?) => {
-        let mut stand_in = $crate::serial::Dummy{};
-        ufmt::uwriteln!(&mut stand_in, $first, $( $($rest)* )*).ok()
+        {
+            let mut stand_in = $crate::serial::Dummy{};
+            use core::fmt::Write;
+            writeln!(&mut stand_in, $first, $( $($rest)* )*).ok()
+        }
     };
 }
 /// Standard printing
 #[macro_export]
 macro_rules! print {
     ($first:tt $(, $( $rest:tt )* )?) => {
-        let mut stand_in = $crate::serial::Dummy{};
-        ufmt::uwrite!(&mut stand_in, $first, $( $($rest)* )*).ok()
+        {
+            let mut stand_in = $crate::serial::Dummy{};
+            use core::fmt::Write;
+            write!(&mut stand_in, $first, $( $($rest)* )*).ok()
+        }
     };
 }
 
@@ -34,14 +39,14 @@ macro_rules! print {
 #[macro_export]
 macro_rules! eprintln {
     ($first:tt $(, $( $rest:tt )* )?) => {
-        $crate::print!("# "); $crate::println!($first, $( $($rest)* )*)
+        $crate::println!("# {}", format_args!($first, $( $($rest)* )*))
     };
 }
 /// Error printing
 #[macro_export]
 macro_rules! eprint {
     ($first:tt $(, $( $rest:tt )* )?) => {
-        $crate::print!("# "); $crate::print!($first, $( $($rest)* )*)
+        $crate::print!("# {}", format_args!($first, $( $($rest)* )*))
     };
 }
 
@@ -49,14 +54,14 @@ macro_rules! eprint {
 #[macro_export]
 macro_rules! wprintln {
     ($first:tt $(, $( $rest:tt )* )?) => {
-        $crate::print!("? "); $crate::println!($first, $( $($rest)* )*)
+        $crate::println!("? {}", format_args!($first, $( $($rest)* )*))
     };
 }
 /// Warning printing
 #[macro_export]
 macro_rules! wprint {
     ($first:tt $(, $( $rest:tt )* )?) => {
-        $crate::print!("? "); $crate::print!($first, $( $($rest)* )*)
+        $crate::print!("? {}", format_args!($first, $( $($rest)* )*))
     };
 }
 
@@ -64,14 +69,14 @@ macro_rules! wprint {
 #[macro_export]
 macro_rules! iprintln {
     ($first:tt $(, $( $rest:tt )* )?) => {
-        $crate::print!("/ "); $crate::println!($first, $( $($rest)* )*)
+        $crate::println!("/ {}", format_args!($first, $( $($rest)* )*))
     };
 }
 /// Info printing
 #[macro_export]
 macro_rules! iprint {
     ($first:tt $(, $( $rest:tt )* )?) => {
-        $crate::print!("/ "); $crate::print!($first, $( $($rest)* )*)
+        $crate::print!("/ {}", format_args!($first, $( $($rest)* )*))
     };
 }
 
@@ -79,23 +84,22 @@ macro_rules! iprint {
 #[macro_export]
 macro_rules! dprintln {
     ($first:tt $(, $( $rest:tt )* )?) => {
-        $crate::print!("- "); $crate::println!($first, $( $($rest)* )*)
+        $crate::println!("- {}", format_args!($first, $( $($rest)* )*))
     };
 }
 /// Debug printing
 #[macro_export]
 macro_rules! dprint {
     ($first:tt $(, $( $rest:tt )* )?) => {
-        $crate::print!("- "); $crate::print!($first, $( $($rest)* )*)
+        $crate::print!("- {}", format_args!($first, $( $($rest)* )*))
     };
 }
 
 /// Dummy struct that calls print function
 pub struct Dummy{}
-impl uWrite for Dummy {
-    type Error = UsbSerialPrintError;
-    fn write_str(&mut self, s: &str) -> Result<(), Self::Error> {
-        blocking_print(s.as_bytes())
+impl core::fmt::Write for Dummy {
+    fn write_str(&mut self, s: &str) -> core::fmt::Result {
+        blocking_print(s.as_bytes()).map_err(|_| core::fmt::Error)
     }
 }
 
