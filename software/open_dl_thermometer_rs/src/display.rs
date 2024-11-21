@@ -88,7 +88,7 @@ const DYNAMIC_PLACEHOLDER:    u8 = b'@';
 
 /// Placeholder element to designate positions where the 'cursor' could be displayed.
 /// Exactly one of these should be replaced with '>' at runtime, all others should be replaced with ' '.
-/// If an element is selectable then it's assumed to  be dynamic too.
+/// If an element is selectable then it's assumed to be dynamic too.
 const SELECTABLE_PLACEHOLDER: u8 = b'%';
 
 /// For elements that are both dynamic and selectable, namely the SD filename characters.
