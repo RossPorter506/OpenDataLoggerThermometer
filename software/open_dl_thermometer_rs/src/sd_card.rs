@@ -2,6 +2,7 @@ use embedded_hal::{digital::{InputPin, OutputPin}, spi::{ErrorType, SpiBus, SpiD
 use embedded_sdmmc::*;
 use rp_pico::{hal::{clocks::PeripheralClock, rtc::RealTimeClock, spi::Enabled, Clock, Spi, Timer}, pac::SPI0};
 use rp_pico::hal::fugit::RateExtU32;
+use alloc::vec::Vec;
 
 use crate::{eprintln, pcb_mapping::{SdCardCs, SdCardExtraPins, SdCardMiso, SdCardMosi, SdCardSck}};
 
@@ -94,7 +95,27 @@ impl SdManager {
 
     /// Get the number of bytes free on the SD card
     pub fn get_free_space_bytes(&mut self) -> u64 {
-        todo!()
+        let Some(file) = self.file else {
+            eprintln!("No file open");
+            return 0;
+        };
+        let mut my_file = embedded_sdmmc::filesystem::RawFile::to_file(file, &mut self.vmgr);
+        let total_space = my_file.length();
+        
+        // Create a buffer to read the file contents
+        let mut buffer = alloc::vec![0u8; total_space as usize];
+        let read_result = my_file.read(&mut buffer);
+        
+        let used_space = match read_result {
+            Ok(bytes_read) => bytes_read as u32,
+            Err(_) => {
+                eprintln!("Error reading file");
+                return 0;
+            }
+        };
+        
+        let result = total_space - used_space;
+        result as u64
     }
 
     /// Initialise the SD card after insertion. Must be done before the SD card can be communicated with
