@@ -12,7 +12,7 @@ use crate::{display::DisplayValues, lmt01::CHARS_PER_READING, NUM_SENSOR_CHANNEL
 /// USB serial object used for printing
 pub static USB_SERIAL: Mutex<RefCell<Option<SerialPort<'static, UsbBus>>>> = Mutex::new(RefCell::new(None));
 
-/// Standard printing
+/// Standard printing. Panics if another mutable reference to USB_SERIAL exists, or if `configure_usb()` hasn't been called yet.
 #[macro_export]
 macro_rules! println {
     ($first:tt $(, $( $rest:tt )* )?) => {
@@ -23,7 +23,7 @@ macro_rules! println {
         }
     };
 }
-/// Standard printing
+/// Standard printing. Panics if another mutable reference to USB_SERIAL exists, or if `configure_usb()` hasn't been called yet.
 #[macro_export]
 macro_rules! print {
     ($first:tt $(, $( $rest:tt )* )?) => {
@@ -35,14 +35,14 @@ macro_rules! print {
     };
 }
 
-/// Error printing
+/// Error printing. Panics if another mutable reference to USB_SERIAL exists, or if `configure_usb()` hasn't been called yet.
 #[macro_export]
 macro_rules! eprintln {
     ($first:tt $(, $( $rest:tt )* )?) => {
         $crate::println!("# {}", format_args!($first, $( $($rest)* )*))
     };
 }
-/// Error printing
+/// Error printing. Panics if another mutable reference to USB_SERIAL exists, or if `configure_usb()` hasn't been called yet.
 #[macro_export]
 macro_rules! eprint {
     ($first:tt $(, $( $rest:tt )* )?) => {
@@ -50,14 +50,14 @@ macro_rules! eprint {
     };
 }
 
-/// Warning printing
+/// Warning printing. Panics if another mutable reference to USB_SERIAL exists, or if `configure_usb()` hasn't been called yet.
 #[macro_export]
 macro_rules! wprintln {
     ($first:tt $(, $( $rest:tt )* )?) => {
         $crate::println!("? {}", format_args!($first, $( $($rest)* )*))
     };
 }
-/// Warning printing
+/// Warning printing. Panics if another mutable reference to USB_SERIAL exists, or if `configure_usb()` hasn't been called yet.
 #[macro_export]
 macro_rules! wprint {
     ($first:tt $(, $( $rest:tt )* )?) => {
@@ -65,14 +65,14 @@ macro_rules! wprint {
     };
 }
 
-/// Info printing
+/// Info printing. Panics if another mutable reference to USB_SERIAL exists, or if `configure_usb()` hasn't been called yet.
 #[macro_export]
 macro_rules! iprintln {
     ($first:tt $(, $( $rest:tt )* )?) => {
         $crate::println!("/ {}", format_args!($first, $( $($rest)* )*))
     };
 }
-/// Info printing
+/// Info printing. Panics if another mutable reference to USB_SERIAL exists, or if `configure_usb()` hasn't been called yet.
 #[macro_export]
 macro_rules! iprint {
     ($first:tt $(, $( $rest:tt )* )?) => {
@@ -80,14 +80,14 @@ macro_rules! iprint {
     };
 }
 
-/// Debug printing
+/// Debug printing. Panics if another mutable reference to USB_SERIAL exists, or if `configure_usb()` hasn't been called yet.
 #[macro_export]
 macro_rules! dprintln {
     ($first:tt $(, $( $rest:tt )* )?) => {
         $crate::println!("- {}", format_args!($first, $( $($rest)* )*))
     };
 }
-/// Debug printing
+/// Debug printing. Panics if another mutable reference to USB_SERIAL exists, or if `configure_usb()` hasn't been called yet.
 #[macro_export]
 macro_rules! dprint {
     ($first:tt $(, $( $rest:tt )* )?) => {
@@ -103,34 +103,40 @@ impl core::fmt::Write for Dummy {
     }
 }
 
-/// Attempts to send data over serial. Blocks until the entire message is sent.
-fn blocking_print<'a>(str: impl Into<&'a [u8]>) -> Result<(), UsbSerialPrintError>{
+/// Attempts to send data over serial. Blocks until the entire message is sent. Note that if the buffer fills up this fn will block until a listener attaches.
+/// 
+/// Panics: If another mutable reference to USB_SERIAL exists, or if `configure_usb()` hasn't been called yet.
+pub fn blocking_print<'a>(str: impl Into<&'a [u8]>) -> Result<(), UsbSerialPrintError>{
     let buf: &[u8] = str.into();
     let mut start = 0;
     while start < buf.len() {
         use UsbSerialPrintError::*;
         match nonblocking_print(&buf[start..]) {
-            // Remove whatever was successfully sent from our buffer
-            Err(WouldBlock(len)) => start += len,
-            // Err(WouldBlock) implies buffer is full.
-            Err(OtherError(a)) => return Err(OtherError(a)),
             Ok(()) => return Ok(()),
+            // Partial send. Remove whatever was successfully sent from our buffer
+            Err(WouldBlock(len)) => start += len,
+            Err(OtherError(a)) => return Err(OtherError(a)),
         };
     }
     Ok(())
 }
 
 /// Attempts to send data over serial. If the buffer is full or is filled the WouldBlock error contains how many bytes were sent before the buffer was filled.
+/// 
+/// Panics: If another mutable reference to USB_SERIAL exists, or if `configure_usb()` hasn't been called yet.
 pub fn nonblocking_print<'a>(str: impl Into<&'a [u8]>) -> Result<(), UsbSerialPrintError>{
+    use UsbSerialPrintError::*;
     let buf: &[u8] = str.into();
+
     critical_section::with(|cs| {
-        let Some(mut serial) = USB_SERIAL.take(cs) else {return Err(UsbSerialPrintError::OtherError(UsbError::InvalidState))};
+        let Some(ref mut serial) = *USB_SERIAL.borrow_ref_mut(cs) else { panic!() }; // Only reachable if this fn is called before USB is configured
+
         match serial.write(buf) {
             Ok(len) if len == buf.len() => Ok(()), 
-            Ok(len)                     => Err(UsbSerialPrintError::WouldBlock(len)),
+            Ok(len)                     => Err(WouldBlock(len)),
             // Err(WouldBlock) implies buffer is full.
-            Err(UsbError::WouldBlock)   => Err(UsbSerialPrintError::WouldBlock(0)),
-            Err(a)                      => Err(UsbSerialPrintError::OtherError(a)),
+            Err(UsbError::WouldBlock)   => Err(WouldBlock(0)),
+            Err(a)                      => Err(OtherError(a)),
         }
     })
 }

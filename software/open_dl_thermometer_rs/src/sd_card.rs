@@ -2,7 +2,6 @@ use embedded_hal::{digital::{InputPin, OutputPin}, spi::{ErrorType, SpiBus, SpiD
 use embedded_sdmmc::*;
 use rp_pico::{hal::{clocks::PeripheralClock, rtc::RealTimeClock, spi::Enabled, Clock, Spi, Timer}, pac::SPI0};
 use rp_pico::hal::fugit::RateExtU32;
-use alloc::vec::Vec;
 
 use crate::{eprintln, pcb_mapping::{SdCardCs, SdCardExtraPins, SdCardMiso, SdCardMosi, SdCardSck}};
 

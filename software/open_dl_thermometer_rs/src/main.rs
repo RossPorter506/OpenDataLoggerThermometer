@@ -133,7 +133,7 @@ fn main() -> ! {
     config.enabled_channels = temp_sensors.autodetect_sensor_channels(&mut system_timer);
 
     println!("Initialisation complete.");
-
+    
     loop {
         // Whether we are going to update state and redraw screen
         let mut update_available: Option<UpdateReason> = None;
@@ -270,19 +270,21 @@ fn start_next_sensor_reading(temp_sensors: &mut TempSensors, sensors_ready_timer
 fn manage_serial_comms(usb_device: &mut UsbDevice<UsbBus>, serial_buffer: ArrayString::<MAX_SNAPSHOT_LEN>) -> ArrayString::<MAX_SNAPSHOT_LEN>{
     // We don't care what gets sent to us, but we need to poll anyway to stay USB compliant
     // Try to send everything we have
-    critical_section::with(|cs| -> ArrayString::<MAX_SNAPSHOT_LEN> {
-        let Some(mut serial) = serial::USB_SERIAL.take(cs) else { unreachable!() };
-        if !serial_buffer.is_empty() && usb_device.poll(&mut [&mut serial]) {
-            use serial::UsbSerialPrintError::*;
-            match serial::nonblocking_print(serial_buffer.as_bytes()) {
-                // Remove whatever was successfully sent from our buffer
-                Err(WouldBlock(len)) => return ArrayString::from(&serial_buffer[len..]).unwrap_or_else(|_| unreachable!()),
-                Err(OtherError(a)) => panic!("{a:?}"),
-                Ok(()) => return serial_buffer,
-            };
-        }
-        serial_buffer
-    })
+    let ready = critical_section::with(|cs| -> bool {
+        let Some(ref mut serial) = *serial::USB_SERIAL.borrow_ref_mut(cs) else { unreachable!() };
+        usb_device.poll(&mut [serial])
+    });
+    
+    if !serial_buffer.is_empty() && ready {
+        use serial::UsbSerialPrintError::*;
+        match serial::nonblocking_print(serial_buffer.as_bytes()) {
+            // Remove whatever was successfully sent from our buffer
+            Err(WouldBlock(len)) => return ArrayString::from(&serial_buffer[len..]).unwrap_or_else(|_| unreachable!() ),
+            Err(OtherError(a)) => panic!("{a:?}"),
+            Ok(()) => return serial_buffer,
+        };
+    }
+    serial_buffer
 }
 
 /// Update system configuration according to button presses.
@@ -389,7 +391,7 @@ static BUTTON_PINS: Mutex<RefCell<Option<pcb_mapping::ButtonPins>>> = Mutex::new
 #[interrupt]
 fn IO_IRQ_BANK0() {
     critical_section::with(|cs| {
-        if let Some(buttons) = BUTTON_PINS.take(cs) {
+        if let Some(ref mut buttons) = *BUTTON_PINS.borrow_ref_mut(cs) {
             if buttons.select.interrupt_status(gpio::Interrupt::EdgeLow) {
                 BUTTON_STATE.set(ButtonState::SelectButton);
             } else if buttons.next.interrupt_status(gpio::Interrupt::EdgeLow) {
