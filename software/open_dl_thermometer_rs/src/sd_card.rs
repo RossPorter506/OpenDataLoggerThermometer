@@ -160,11 +160,6 @@ impl SdManager {
         self.is_card_inserted() && self.is_card_writable() && self.is_file_open()
     }
 
-    /// Whether the card is ready to be removed safely
-    pub fn ready_to_remove(&mut self) -> bool {
-        todo!()
-    }
-
     pub fn get_card_info(&mut self) -> SdCardInfo {
         let is_inserted = self.is_card_inserted();
         if !is_inserted {

@@ -189,7 +189,7 @@ fn monitor_sdcard_state(sd_was_inserted: bool, sd_manager: &mut crate::SdManager
     let sd_just_added = !sd_was_inserted && sd_manager.is_card_inserted();
     if sd_just_removed { // SD card removed
 
-        if !sd_manager.ready_to_remove() {
+        if !sd_manager.is_safe_to_remove() {
             // SD card removed unexpectedly
             // Move to SD card error screen
             *update_available = Some(UpdateReason::SDRemovedUnexpectedly);
@@ -206,7 +206,7 @@ fn monitor_sdcard_state(sd_was_inserted: bool, sd_manager: &mut crate::SdManager
         sd_manager.open_file(&filename); // TODO: Ensure this function makes ready_to_write() return true.
     }
     // Just stopped datalogging
-    else if config.status != SamplingAndDatalogging && !sd_manager.ready_to_remove() {
+    else if config.status != SamplingAndDatalogging && !sd_manager.is_safe_to_remove() {
         // We don't need to write to the card if we're not datalogging, so make it safe to remove just in case the user removes it.
         sd_manager.prepare_for_removal(); // TODO: Ensure this function the ready_to_remove() return true.
     }
