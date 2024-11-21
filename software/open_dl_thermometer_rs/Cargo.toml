@@ -33,7 +33,6 @@ to-arraystring = "0.2"
 # USB Serial printing
 usb-device = "0.3"
 usbd-serial = "0.2"
-ufmt="0.2"
 
 # Heap
 embedded-alloc = "0.6"
