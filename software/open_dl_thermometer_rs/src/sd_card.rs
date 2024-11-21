@@ -69,11 +69,15 @@ impl SdManager {
 
     /// Write bytes to the opened file
     pub fn write_bytes(&mut self, bytes: &[u8]) {
-        if self.file.is_none() {
+        let Some(file) = self.file else {
             eprintln!("No file open to write to");
-            return;
+            return
+        };
+        let mut my_file = embedded_sdmmc::filesystem::RawFile::to_file(file, &mut self.vmgr);
+        if my_file.is_eof() {
+            eprintln!("File is at EOF, cannot write more data");
+            return
         }
-        let mut my_file = embedded_sdmmc::filesystem::RawFile::to_file(self.file.unwrap_or_else(|| unreachable!()), &mut self.vmgr);
         let error = embedded_sdmmc::filesystem::File::write(&mut my_file, bytes);
         if error.is_err() {
             eprintln!("Error writing to file!");
@@ -82,8 +86,10 @@ impl SdManager {
 
     /// Whether the SD card can be safely removed right now
     pub fn is_safe_to_remove(&self) -> bool {
-        // Not sure if the library will have support for this, may have to query the SD card directly
-        todo!()
+        if self.vmgr.has_open_handles() {
+            return false;
+        } 
+        true
     }
 
     /// Get the number of bytes free on the SD card
