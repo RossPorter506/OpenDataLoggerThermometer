@@ -10,6 +10,7 @@ pub struct SdManager {
     extra_pins: SdCardExtraPins,
     vmgr: VolumeManager<embedded_sdmmc::SdCard<SDCardSPIDriver, Timer>, RtcWrapper>,
     file: Option<embedded_sdmmc::filesystem::RawFile>,
+    volume: Option<RawVolume>
 }
 const MBR_MAX_PARTITIONS: usize = 4;
 type SpiBus0Enabled = Spi<Enabled,SPI0,(SdCardMosi, SdCardMiso, SdCardSck), {crate::BITS_PER_SPI_PACKET}>;
@@ -18,35 +19,43 @@ impl SdManager {
         let rtc_wrapper = RtcWrapper{rtc};
         let spi_driver = SDCardSPIDriver{spi_bus, cs};
         let new_card = embedded_sdmmc::SdCard::new(spi_driver, delay);
-        // let ts: embedded_sdmmc::filesystem::Timestamp = TimeSource.get_timestamp();
+
         Self {
-            // ts: ts,
             extra_pins,
             vmgr: VolumeManager::new(new_card, rtc_wrapper),
             file: None,
+            volume: None,
         }
     }
 
     /// Whether there is a volume on the SD card that is formatted in a way we can understand
     pub fn is_card_formatted(&mut self) -> bool {
+        if self.volume.is_some() { return true }
+        // Check for any readable volumes
         for i in 0..MBR_MAX_PARTITIONS {
-            let volume = self.vmgr.open_volume(VolumeIdx(i));
-            if volume.is_ok() {return true}
+            if let Ok(vol) = self.vmgr.open_volume(VolumeIdx(i)) {
+                self.volume = Some(vol.to_raw_volume());
+                return true;
+            }
         }
         false
     }
 
     /// Open a file for writing, creating it if it doesn't exist already. If it does exist the contents are cleared.
     pub fn open_file(&mut self, name: &str) {
-        for i in 0..MBR_MAX_PARTITIONS {
-            let Ok(volume) = self.vmgr.open_raw_volume(VolumeIdx(i)) else {continue};
-            let Ok(root_dir) = self.vmgr.open_root_dir(volume) else {continue};
-            let Ok(file) = self.vmgr.open_file_in_dir(root_dir, name, Mode::ReadWriteCreateOrTruncate) else {continue};
-            self.file = Some(file);
-            return;
+        if let Err(e) = self.try_open_file(name) {
+            eprintln!("Failed to open file: {e:?}");
         }
-        // TODO: Error handling
-        eprintln!("Could not open file: '{}'", name);
+    }
+
+    fn try_open_file(&mut self, name: &str) -> Result<(), embedded_sdmmc::Error<SdCardError>> {
+        // This should be infallible, as we check for readable volumes during the setup screen.
+        let vol = self.volume.ok_or(embedded_sdmmc::Error::FormatError("No readable volumes"))?;
+        // These could totally fail though
+        let root_dir = self.vmgr.open_root_dir(vol)?;
+        let file = self.vmgr.open_file_in_dir(root_dir, name, Mode::ReadWriteCreateOrTruncate)?;
+        self.file = Some(file);
+        Ok(())
     }
 
     /// Whether we have a particular file open at the moment
@@ -56,40 +65,32 @@ impl SdManager {
 
     /// Closes all open files
     pub fn close_file(&mut self) {
-        if self.file.is_some() {
-            let my_file = embedded_sdmmc::filesystem::RawFile::to_file(self.file.unwrap_or_else(|| unreachable!()), &mut self.vmgr);
-            let error = embedded_sdmmc::filesystem::File::close(my_file);
-            if error.is_err() {
-                eprintln!("Error closing file!");
-            }
-        } else {
-            eprintln!("No file open to close");
+        let Some(file) = self.file else { 
+            eprintln!("No file open to close"); return; 
+        };
+        let my_file = embedded_sdmmc::filesystem::RawFile::to_file(file, &mut self.vmgr);
+        if let Err(e) = embedded_sdmmc::filesystem::File::close(my_file) {
+            eprintln!("Error closing file: {e:?}");
         }
     }
 
     /// Write bytes to the opened file
     pub fn write_bytes(&mut self, bytes: &[u8]) {
-        let Some(file) = self.file else {
-            eprintln!("No file open to write to");
-            return
+        let Some(file) = self.file else { 
+            eprintln!("No file open to write to"); return; 
         };
         let mut my_file = embedded_sdmmc::filesystem::RawFile::to_file(file, &mut self.vmgr);
         if my_file.is_eof() {
-            eprintln!("File is at EOF, cannot write more data");
-            return
+            eprintln!("File is at EOF, cannot write more data"); return;
         }
-        let error = embedded_sdmmc::filesystem::File::write(&mut my_file, bytes);
-        if error.is_err() {
-            eprintln!("Error writing to file!");
+        if let Err(e) = embedded_sdmmc::filesystem::File::write(&mut my_file, bytes) {
+            eprintln!("Error writing to file: {e:?}");
         }
     }
 
     /// Whether the SD card can be safely removed right now
     pub fn is_safe_to_remove(&self) -> bool {
-        if self.vmgr.has_open_handles() {
-            return false;
-        } 
-        true
+        !self.vmgr.has_open_handles()
     }
 
     /// Get the number of bytes free on the SD card
@@ -143,6 +144,8 @@ impl SdManager {
 
     /// Prepare the card for safe removal. The card is safe to remove after this function finishes.
     pub fn prepare_for_removal(&mut self) {
+        // Close self.volume + self.file, and set them to None
+        // Anything else?
         todo!()
     }
 
