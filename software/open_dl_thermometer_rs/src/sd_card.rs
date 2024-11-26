@@ -102,20 +102,8 @@ impl SdManager {
         let mut my_file = embedded_sdmmc::filesystem::RawFile::to_file(file, &mut self.vmgr);
         let total_space = my_file.length();
         
-        // Create a buffer to read the file contents
-        let mut buffer = alloc::vec![0u8; total_space as usize];
-        let read_result = my_file.read(&mut buffer);
-        
-        let used_space = match read_result {
-            Ok(bytes_read) => bytes_read as u32,
-            Err(_) => {
-                eprintln!("Error reading file");
-                return 0;
-            }
-        };
-        
-        let result = total_space - used_space;
-        result as u64
+        // find partition size
+        0
     }
 
     /// Initialise the SD card after insertion. Must be done before the SD card can be communicated with
@@ -145,8 +133,14 @@ impl SdManager {
     /// Prepare the card for safe removal. The card is safe to remove after this function finishes.
     pub fn prepare_for_removal(&mut self) {
         // Close self.volume + self.file, and set them to None
-        // Anything else?
-        todo!()
+        self.close_file();
+        self.file = None;
+        // convsert raw volume to real volume.
+        let my_volume = embedded_sdmmc::RawVolume::to_volume(self.volume.unwrap(), &mut self.vmgr);
+        let error = my_volume.close();
+        if let Err(e) = error {
+            eprintln!("Error closing volume: {e:?}");
+        }
     }
 
     /// Reset the state of the sd_manager and all subcomponents after an SD card is unexpectedly removed. 
@@ -154,7 +148,7 @@ impl SdManager {
     /// This includes dealing with files that should have been closed, etc.
     pub fn reset_after_unexpected_removal(&mut self) {
         // The volume manager will likely be unhappy about files remaining open, but probably can't close them either. Figure out what to do.
-        todo!()
+        self.prepare_for_removal();
     }
 
     /// Whether we are ready to write data to the SD card 
