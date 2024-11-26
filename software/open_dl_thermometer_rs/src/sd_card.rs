@@ -65,11 +65,8 @@ impl SdManager {
 
     /// Closes all open files
     pub fn close_file(&mut self) {
-        let Some(file) = self.file else { 
-            eprintln!("No file open to close"); return; 
-        };
-        let my_file = embedded_sdmmc::filesystem::RawFile::to_file(file, &mut self.vmgr);
-        if let Err(e) = embedded_sdmmc::filesystem::File::close(my_file) {
+        let Some(file) = self.file.take() else { return };
+        if let Err(e) = file.to_file(&mut self.vmgr).close() {
             eprintln!("Error closing file: {e:?}");
         }
     }
@@ -79,11 +76,11 @@ impl SdManager {
         let Some(file) = self.file else { 
             eprintln!("No file open to write to"); return; 
         };
-        let mut my_file = embedded_sdmmc::filesystem::RawFile::to_file(file, &mut self.vmgr);
+        let mut my_file = file.to_file(&mut self.vmgr);
         if my_file.is_eof() {
             eprintln!("File is at EOF, cannot write more data"); return;
         }
-        if let Err(e) = embedded_sdmmc::filesystem::File::write(&mut my_file, bytes) {
+        if let Err(e) = my_file.write(bytes) {
             eprintln!("Error writing to file: {e:?}");
         }
     }
@@ -116,6 +113,8 @@ impl SdManager {
             let _ = driver.spi_bus.write(&[0;10]); 
             driver.spi_bus.set_baudrate(peripheral_clock.freq(), 25.MHz())
         });
+        // Tell SD card to initialise next time it's used
+        self.vmgr.device().mark_card_uninit();
     }
 
     /// Whether the SD card is physically present in the SD card slot
@@ -134,12 +133,14 @@ impl SdManager {
     pub fn prepare_for_removal(&mut self) {
         // Close self.volume + self.file, and set them to None
         self.close_file();
-        self.file = None;
-        // convsert raw volume to real volume.
-        let my_volume = embedded_sdmmc::RawVolume::to_volume(self.volume.unwrap(), &mut self.vmgr);
-        let error = my_volume.close();
-        if let Err(e) = error {
-            eprintln!("Error closing volume: {e:?}");
+        self.close_volume();
+    }
+
+    fn close_volume(&mut self) {
+        if let Some(raw_vol) = self.volume.take() {
+            if let Err(e) = raw_vol.to_volume(&mut self.vmgr).close() {
+                eprintln!("Error closing volume: {e:?}");
+            }
         }
     }
 
