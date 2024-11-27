@@ -42,3 +42,6 @@ liquid_crystal = "0.2"
 # Global printing
 static_cell = {version = "2.1"}
 portable-atomic = {version = "*", features = ["critical-section"]}
+
+# Serial Wire Debug / RTT printing
+rtt-target = "0.6"

@@ -1,7 +1,7 @@
 #![no_std]
 #![no_main]
 #![feature(variant_count)]
-use core::{cell::RefCell, sync::atomic::{AtomicU8,AtomicBool, Ordering}};
+use core::{cell::RefCell, panic::PanicInfo, sync::atomic::{AtomicBool, AtomicU8, Ordering}};
 use panic_halt as _;
 
 use rp_pico::{
@@ -21,7 +21,7 @@ use serial::MAX_SNAPSHOT_LEN;
 use static_cell::StaticCell;
 use usb_device::{class_prelude::*, prelude::*};
 use usbd_serial::SerialPort;
-
+use rtt_target::{rtt_init_print, rprintln};
 use arrayvec::ArrayString;
 use atomic_enum::atomic_enum;
 use alloc::string::String;
@@ -55,6 +55,7 @@ use state_machine::{
 extern crate alloc;
 
 /* TODO:
+Figure out what errors should merely be printed versus those that should panic
 Respond to USB serial ASCII ENQ with ACK
 Display driver: Custom chars
 SD card driver
@@ -74,8 +75,15 @@ fn configure_heap() {
     unsafe { ALLOCATOR.init(core::ptr::addr_of_mut!(HEAP) as usize, HEAP_SIZE) }
 }
 
+#[panic_handler]
+fn panic_handler(panic_info: &PanicInfo) -> ! {
+    rprintln!("Panic: {:?}", panic_info);
+    loop {}
+}
+
 #[entry]
 fn main() -> ! {
+    rtt_init_print!();
     configure_heap();
     // Take ownership of peripherals
     let Some(mut registers) = pac::Peripherals::take() else { unreachable!() };
