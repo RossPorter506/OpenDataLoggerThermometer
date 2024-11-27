@@ -161,6 +161,12 @@ const SD_REMOVED_SCREEN: Screen = [
     *b"               %YES ",
     *b"               %NO  "];
 
+const SD_ERROR_SCREEN: Screen = [
+    *b"ERR: Unknwn SD Error",
+    *b"Continue without SD?",
+    *b"               %YES ",
+    *b"               %NO  "];
+
 const SD_WRITING_SCREEN: Screen = [
     *b"Writing to SD card  ",
     *b"Do not remove...    ",
@@ -368,6 +374,7 @@ fn determine_screen(config: &Config, sdcard_info: SdCardInfo, sensor_values: Dis
         DatalogSDWriting(_) =>              (None,               SD_WRITING_SCREEN),
         DatalogSDSafeToRemove(sel) =>       (Some(sel as usize), SD_WRITE_COMPLETE_SCREEN),
         DatalogSDUnexpectedRemoval(sel) =>  (Some(sel as usize), SD_REMOVED_SCREEN),
+        DatalogSDError(sel) =>              (Some(sel as usize), SD_ERROR_SCREEN),
     };
 
     let cursor_pos = substitute_selected_elements(&mut display_buffer, selected_element_pos);

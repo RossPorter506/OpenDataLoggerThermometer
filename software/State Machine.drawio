@@ -1,6 +1,6 @@
-<mxfile host="Electron" agent="Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) draw.io/24.7.17 Chrome/128.0.6613.186 Electron/32.2.3 Safari/537.36" version="24.7.17">
+<mxfile host="Electron" agent="Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) draw.io/24.7.17 Chrome/128.0.6613.186 Electron/32.2.5 Safari/537.36" version="24.7.17">
   <diagram name="Page-1" id="Q3xABJWAg-SNLwv8lgqA">
-    <mxGraphModel dx="2074" dy="1191" grid="1" gridSize="10" guides="1" tooltips="1" connect="1" arrows="1" fold="1" page="1" pageScale="1" pageWidth="827" pageHeight="1169" math="0" shadow="0">
+    <mxGraphModel dx="2037" dy="849" grid="1" gridSize="10" guides="1" tooltips="1" connect="1" arrows="1" fold="1" page="1" pageScale="1" pageWidth="827" pageHeight="1169" math="0" shadow="0">
       <root>
         <mxCell id="0" />
         <mxCell id="1" parent="0" />
@@ -41,7 +41,7 @@
             </Array>
           </mxGeometry>
         </mxCell>
-        <mxCell id="ryMFJI7EJmz1ZqOhbHSy-1" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;exitX=0.75;exitY=1;exitDx=0;exitDy=0;entryX=0;entryY=0;entryDx=0;entryDy=0;" edge="1" parent="1" source="KfBXZv0DRO6nxlZnSBsi-20" target="dpAYnM_afZyoAVR1uQpI-5">
+        <mxCell id="ryMFJI7EJmz1ZqOhbHSy-1" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;exitX=0.75;exitY=1;exitDx=0;exitDy=0;entryX=0;entryY=0;entryDx=0;entryDy=0;jumpStyle=arc;" parent="1" source="KfBXZv0DRO6nxlZnSBsi-20" target="dpAYnM_afZyoAVR1uQpI-5" edge="1">
           <mxGeometry relative="1" as="geometry">
             <mxPoint x="860" y="710" as="targetPoint" />
             <Array as="points">
@@ -49,7 +49,7 @@
             </Array>
           </mxGeometry>
         </mxCell>
-        <mxCell id="ryMFJI7EJmz1ZqOhbHSy-2" value="SD Configured but not present" style="edgeLabel;html=1;align=center;verticalAlign=middle;resizable=0;points=[];fontSize=20;" vertex="1" connectable="0" parent="ryMFJI7EJmz1ZqOhbHSy-1">
+        <mxCell id="ryMFJI7EJmz1ZqOhbHSy-2" value="SD Configured but not present" style="edgeLabel;html=1;align=center;verticalAlign=middle;resizable=0;points=[];fontSize=20;" parent="ryMFJI7EJmz1ZqOhbHSy-1" vertex="1" connectable="0">
           <mxGeometry x="-0.7648" relative="1" as="geometry">
             <mxPoint x="50" y="53" as="offset" />
           </mxGeometry>
@@ -343,18 +343,18 @@
         <mxCell id="KfBXZv0DRO6nxlZnSBsi-155" value="&lt;font face=&quot;Courier New&quot;&gt;Error: SD card full&lt;br&gt;&lt;/font&gt;" style="text;html=1;align=left;verticalAlign=middle;whiteSpace=wrap;rounded=0;fontSize=33;spacingRight=0;spacingTop=0;spacing=0;imageHeight=24;fixedWidth=1;" parent="1" vertex="1">
           <mxGeometry x="1042" y="520" width="400" height="30" as="geometry" />
         </mxCell>
-        <mxCell id="KfBXZv0DRO6nxlZnSBsi-161" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;exitX=0;exitY=0.5;exitDx=0;exitDy=0;entryX=0;entryY=0;entryDx=0;entryDy=0;" parent="1" source="KfBXZv0DRO6nxlZnSBsi-158" edge="1">
+        <mxCell id="KfBXZv0DRO6nxlZnSBsi-161" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;exitX=0;exitY=0.5;exitDx=0;exitDy=0;" parent="1" source="KfBXZv0DRO6nxlZnSBsi-158" edge="1">
           <mxGeometry relative="1" as="geometry">
             <Array as="points">
-              <mxPoint x="540" y="600" />
-              <mxPoint x="540" y="450" />
+              <mxPoint x="900" y="600" />
+              <mxPoint x="900" y="600" />
             </Array>
-            <mxPoint x="560.0000000000023" y="450" as="targetPoint" />
+            <mxPoint x="860" y="600" as="targetPoint" />
           </mxGeometry>
         </mxCell>
         <mxCell id="dubMZCo4cq1mhFCN-_DC-8" value="Yes" style="edgeLabel;html=1;align=center;verticalAlign=middle;resizable=0;points=[];fontSize=20;" parent="KfBXZv0DRO6nxlZnSBsi-161" vertex="1" connectable="0">
           <mxGeometry x="-0.7228" y="-5" relative="1" as="geometry">
-            <mxPoint x="2" y="5" as="offset" />
+            <mxPoint x="-2" y="5" as="offset" />
           </mxGeometry>
         </mxCell>
         <mxCell id="KfBXZv0DRO6nxlZnSBsi-158" value="&lt;font face=&quot;Courier New&quot;&gt;&amp;nbsp; &amp;nbsp; &amp;nbsp; &amp;nbsp; &amp;nbsp; &amp;nbsp; &amp;nbsp; &amp;nbsp;&lt;font color=&quot;#ff8000&quot;&gt;&amp;gt;&lt;/font&gt;&lt;/font&gt;&lt;font face=&quot;Courier New&quot;&gt;Yes&lt;br&gt;&lt;/font&gt;" style="text;html=1;align=left;verticalAlign=middle;whiteSpace=wrap;rounded=0;fontSize=33;spacingRight=0;spacingTop=0;spacing=0;imageHeight=24;fixedWidth=1;" parent="1" vertex="1">
@@ -372,17 +372,25 @@
         <mxCell id="dubMZCo4cq1mhFCN-_DC-3" value="&lt;font face=&quot;Courier New&quot;&gt;5: &lt;font color=&quot;#00cc00&quot;&gt;132.7C&lt;/font&gt;&amp;nbsp; 6: &lt;font color=&quot;#00cc00&quot;&gt;-45.3C&lt;/font&gt;&lt;br&gt;&lt;/font&gt;" style="text;html=1;align=left;verticalAlign=middle;whiteSpace=wrap;rounded=0;fontSize=33;spacingRight=0;spacingTop=0;spacing=0;imageHeight=24;fixedWidth=1;" parent="1" vertex="1">
           <mxGeometry x="560" y="420" width="400" height="30" as="geometry" />
         </mxCell>
-        <mxCell id="dpAYnM_afZyoAVR1uQpI-6" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;exitX=0.75;exitY=1;exitDx=0;exitDy=0;jumpStyle=arc;" parent="1" source="dubMZCo4cq1mhFCN-_DC-4" edge="1">
+        <mxCell id="dpAYnM_afZyoAVR1uQpI-6" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;exitX=0.5;exitY=1;exitDx=0;exitDy=0;jumpStyle=arc;" parent="1" source="dubMZCo4cq1mhFCN-_DC-4" edge="1">
           <mxGeometry relative="1" as="geometry">
-            <mxPoint x="860" y="710" as="targetPoint" />
+            <mxPoint x="760" y="710" as="targetPoint" />
             <Array as="points">
-              <mxPoint x="860" y="710" />
+              <mxPoint x="760" y="710" />
             </Array>
           </mxGeometry>
         </mxCell>
         <mxCell id="dpAYnM_afZyoAVR1uQpI-7" value="SD Removed" style="edgeLabel;html=1;align=center;verticalAlign=middle;resizable=0;points=[];fontSize=20;" parent="dpAYnM_afZyoAVR1uQpI-6" vertex="1" connectable="0">
           <mxGeometry x="-0.8006" relative="1" as="geometry">
             <mxPoint as="offset" />
+          </mxGeometry>
+        </mxCell>
+        <mxCell id="H4CWPBEKLfHW3ohGWclG-6" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;exitX=0.25;exitY=1;exitDx=0;exitDy=0;entryX=0.25;entryY=0;entryDx=0;entryDy=0;jumpStyle=arc;" edge="1" parent="1" source="dubMZCo4cq1mhFCN-_DC-4" target="H4CWPBEKLfHW3ohGWclG-3">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="H4CWPBEKLfHW3ohGWclG-9" value="Other SD Error" style="edgeLabel;html=1;align=center;verticalAlign=middle;resizable=0;points=[];fontSize=20;" vertex="1" connectable="0" parent="H4CWPBEKLfHW3ohGWclG-6">
+          <mxGeometry x="-0.6" y="-1" relative="1" as="geometry">
+            <mxPoint y="39" as="offset" />
           </mxGeometry>
         </mxCell>
         <mxCell id="dubMZCo4cq1mhFCN-_DC-4" value="&lt;font face=&quot;Courier New&quot;&gt;7: &lt;font color=&quot;#00cc00&quot;&gt;132.7C&lt;/font&gt;&amp;nbsp; 8: &lt;font color=&quot;#00cc00&quot;&gt;-45.3C&lt;/font&gt;&lt;br&gt;&lt;/font&gt;" style="text;html=1;align=left;verticalAlign=middle;whiteSpace=wrap;rounded=0;fontSize=33;spacingRight=0;spacingTop=0;spacing=0;imageHeight=24;fixedWidth=1;" parent="1" vertex="1">
@@ -415,12 +423,12 @@
         </mxCell>
         <mxCell id="dpAYnM_afZyoAVR1uQpI-8" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;exitX=0;exitY=0.5;exitDx=0;exitDy=0;jumpStyle=arc;" parent="1" source="dpAYnM_afZyoAVR1uQpI-4" edge="1">
           <mxGeometry relative="1" as="geometry">
-            <mxPoint x="539.9999999999998" y="600" as="targetPoint" />
+            <mxPoint x="860" y="760" as="targetPoint" />
           </mxGeometry>
         </mxCell>
         <mxCell id="dpAYnM_afZyoAVR1uQpI-9" value="Yes" style="edgeLabel;html=1;align=center;verticalAlign=middle;resizable=0;points=[];fontSize=20;" parent="dpAYnM_afZyoAVR1uQpI-8" vertex="1" connectable="0">
           <mxGeometry x="-0.8628" relative="1" as="geometry">
-            <mxPoint as="offset" />
+            <mxPoint x="-22" as="offset" />
           </mxGeometry>
         </mxCell>
         <mxCell id="dpAYnM_afZyoAVR1uQpI-4" value="&lt;font face=&quot;Courier New&quot;&gt;&amp;nbsp; &amp;nbsp; &amp;nbsp; &amp;nbsp; &amp;nbsp; &amp;nbsp; &amp;nbsp; &amp;nbsp;&lt;font color=&quot;#ff8000&quot;&gt;&amp;gt;&lt;/font&gt;&lt;/font&gt;&lt;font face=&quot;Courier New&quot;&gt;Yes&lt;br&gt;&lt;/font&gt;" style="text;html=1;align=left;verticalAlign=middle;whiteSpace=wrap;rounded=0;fontSize=33;spacingRight=0;spacingTop=0;spacing=0;imageHeight=24;fixedWidth=1;" parent="1" vertex="1">
@@ -428,6 +436,43 @@
         </mxCell>
         <mxCell id="dpAYnM_afZyoAVR1uQpI-5" value="&lt;font face=&quot;Courier New&quot;&gt;Continue without SD?&lt;/font&gt;&lt;font face=&quot;Courier New&quot;&gt;&lt;br&gt;&lt;/font&gt;" style="text;html=1;align=left;verticalAlign=middle;whiteSpace=wrap;rounded=0;fontSize=33;spacingRight=0;spacingTop=0;spacing=0;imageHeight=24;fixedWidth=1;" parent="1" vertex="1">
           <mxGeometry x="1041.5" y="710" width="400" height="30" as="geometry" />
+        </mxCell>
+        <mxCell id="H4CWPBEKLfHW3ohGWclG-1" value="" style="rounded=0;whiteSpace=wrap;html=1;" vertex="1" parent="1">
+          <mxGeometry x="560" y="810" width="400" height="120" as="geometry" />
+        </mxCell>
+        <mxCell id="H4CWPBEKLfHW3ohGWclG-2" value="&lt;font face=&quot;Courier New&quot;&gt;&amp;nbsp; &amp;nbsp; &amp;nbsp; &amp;nbsp; &amp;nbsp; &amp;nbsp; &amp;nbsp; &amp;nbsp;&lt;font color=&quot;#ff8000&quot;&gt;&amp;gt;&lt;/font&gt;No&lt;/font&gt;" style="text;html=1;align=left;verticalAlign=middle;whiteSpace=wrap;rounded=0;fontSize=33;spacingRight=0;spacingTop=0;spacing=0;imageHeight=24;fixedWidth=1;" vertex="1" parent="1">
+          <mxGeometry x="560" y="900" width="400" height="30" as="geometry" />
+        </mxCell>
+        <mxCell id="H4CWPBEKLfHW3ohGWclG-7" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;exitX=0.75;exitY=0;exitDx=0;exitDy=0;entryX=0.75;entryY=1;entryDx=0;entryDy=0;" edge="1" parent="1" source="H4CWPBEKLfHW3ohGWclG-3" target="dubMZCo4cq1mhFCN-_DC-4">
+          <mxGeometry relative="1" as="geometry">
+            <Array as="points" />
+          </mxGeometry>
+        </mxCell>
+        <mxCell id="H4CWPBEKLfHW3ohGWclG-3" value="&lt;font face=&quot;Courier New&quot;&gt;Err: Unknwn SD error&lt;br&gt;&lt;/font&gt;" style="text;html=1;align=left;verticalAlign=middle;whiteSpace=wrap;rounded=0;fontSize=33;spacingRight=0;spacingTop=0;spacing=0;imageHeight=24;fixedWidth=1;" vertex="1" parent="1">
+          <mxGeometry x="560" y="810" width="400" height="30" as="geometry" />
+        </mxCell>
+        <mxCell id="H4CWPBEKLfHW3ohGWclG-8" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;exitX=0;exitY=0;exitDx=0;exitDy=0;entryX=0.25;entryY=1;entryDx=0;entryDy=0;dashed=1;" edge="1" parent="1" source="H4CWPBEKLfHW3ohGWclG-4" target="KfBXZv0DRO6nxlZnSBsi-20">
+          <mxGeometry relative="1" as="geometry">
+            <Array as="points">
+              <mxPoint x="140" y="875" />
+            </Array>
+          </mxGeometry>
+        </mxCell>
+        <mxCell id="H4CWPBEKLfHW3ohGWclG-4" value="&lt;font face=&quot;Courier New&quot;&gt;&amp;nbsp; &amp;nbsp; &amp;nbsp; &amp;nbsp; &amp;nbsp; &amp;nbsp; &amp;nbsp; &amp;nbsp;&lt;font color=&quot;#ff8000&quot;&gt;&amp;gt;&lt;/font&gt;&lt;/font&gt;&lt;font face=&quot;Courier New&quot;&gt;Yes&lt;br&gt;&lt;/font&gt;" style="text;html=1;align=left;verticalAlign=middle;whiteSpace=wrap;rounded=0;fontSize=33;spacingRight=0;spacingTop=0;spacing=0;imageHeight=24;fixedWidth=1;" vertex="1" parent="1">
+          <mxGeometry x="559" y="875" width="400" height="30" as="geometry" />
+        </mxCell>
+        <mxCell id="H4CWPBEKLfHW3ohGWclG-5" value="&lt;font face=&quot;Courier New&quot;&gt;Continue without SD?&lt;/font&gt;&lt;font face=&quot;Courier New&quot;&gt;&lt;br&gt;&lt;/font&gt;" style="text;html=1;align=left;verticalAlign=middle;whiteSpace=wrap;rounded=0;fontSize=33;spacingRight=0;spacingTop=0;spacing=0;imageHeight=24;fixedWidth=1;" vertex="1" parent="1">
+          <mxGeometry x="559" y="840" width="400" height="30" as="geometry" />
+        </mxCell>
+        <mxCell id="H4CWPBEKLfHW3ohGWclG-10" value="No" style="edgeLabel;html=1;align=center;verticalAlign=middle;resizable=0;points=[];fontSize=20;" vertex="1" connectable="0" parent="1">
+          <mxGeometry x="480" y="870" as="geometry">
+            <mxPoint x="-7" y="2" as="offset" />
+          </mxGeometry>
+        </mxCell>
+        <mxCell id="H4CWPBEKLfHW3ohGWclG-11" value="Yes" style="edgeLabel;html=1;align=center;verticalAlign=middle;resizable=0;points=[];fontSize=20;" vertex="1" connectable="0" parent="1">
+          <mxGeometry x="880" y="785" as="geometry">
+            <mxPoint x="-20" y="-3" as="offset" />
+          </mxGeometry>
         </mxCell>
       </root>
     </mxGraphModel>

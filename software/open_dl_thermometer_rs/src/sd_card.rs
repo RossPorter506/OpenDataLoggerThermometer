@@ -42,13 +42,7 @@ impl SdManager {
     }
 
     /// Open a file for writing, creating it if it doesn't exist already. If it does exist the contents are cleared.
-    pub fn open_file(&mut self, name: &str) {
-        if let Err(e) = self.try_open_file(name) {
-            eprintln!("Failed to open file: {e:?}");
-        }
-    }
-
-    fn try_open_file(&mut self, name: &str) -> Result<(), embedded_sdmmc::Error<SdCardError>> {
+    pub fn try_open_file(&mut self, name: &str) -> Result<(), embedded_sdmmc::Error<SdCardError>> {
         // This should be infallible, as we check for readable volumes during the setup screen.
         let vol = self.volume.ok_or(embedded_sdmmc::Error::FormatError("No readable volumes"))?;
         // These could totally fail though
@@ -63,26 +57,14 @@ impl SdManager {
         self.file.is_some()
     }
 
-    /// Closes all open files
-    pub fn close_file(&mut self) {
-        let Some(file) = self.file.take() else { return };
-        if let Err(e) = file.to_file(&mut self.vmgr).close() {
-            eprintln!("Error closing file: {e:?}");
-        }
-    }
-
     /// Write bytes to the opened file
-    pub fn write_bytes(&mut self, bytes: &[u8]) {
+    pub fn write_bytes(&mut self, bytes: &[u8]) -> Result<(), embedded_sdmmc::Error<SdCardError>> {
         let Some(file) = self.file else { 
-            eprintln!("No file open to write to"); return; 
+            eprintln!("No file open to write to."); return Err(embedded_sdmmc::Error::NotFound);
         };
-        let mut my_file = file.to_file(&mut self.vmgr);
-        if my_file.is_eof() {
-            eprintln!("File is at EOF, cannot write more data"); return;
-        }
-        if let Err(e) = my_file.write(bytes) {
-            eprintln!("Error writing to file: {e:?}");
-        }
+        
+        file.to_file(&mut self.vmgr).write(bytes)?;
+        Ok(())
     }
 
     /// Whether the SD card can be safely removed right now
@@ -130,26 +112,31 @@ impl SdManager {
     }
 
     /// Prepare the card for safe removal. The card is safe to remove after this function finishes.
-    pub fn prepare_for_removal(&mut self) {
-        // Close self.volume + self.file, and set them to None
-        self.close_file();
-        self.close_volume();
+    pub fn prepare_for_removal(&mut self) -> Result<(), embedded_sdmmc::Error<SdCardError>>{
+        self.close_file()?;
+        self.close_volume()
     }
 
-    fn close_volume(&mut self) {
-        if let Some(raw_vol) = self.volume.take() {
-            if let Err(e) = raw_vol.to_volume(&mut self.vmgr).close() {
-                eprintln!("Error closing volume: {e:?}");
-            }
+    fn close_file(&mut self) -> Result<(), embedded_sdmmc::Error<SdCardError>>{
+        let Some(file) = self.file.take() else { return Ok(()) };
+        file.to_file(&mut self.vmgr).close()
+    }
+
+    fn close_volume(&mut self) -> Result<(), embedded_sdmmc::Error<SdCardError>>{
+        if let Some(raw_vol) = self.volume.take() { 
+            return raw_vol.to_volume(&mut self.vmgr).close();
         }
+        Ok(())
     }
 
     /// Reset the state of the sd_manager and all subcomponents after an SD card is unexpectedly removed. 
     /// 
     /// This includes dealing with files that should have been closed, etc.
-    pub fn reset_after_unexpected_removal(&mut self) {
-        // The volume manager will likely be unhappy about files remaining open, but probably can't close them either. Figure out what to do.
-        self.prepare_for_removal();
+    pub fn reset_after_unexpected_removal(self) -> SdManager {
+        // Can't close open files or volumes as this requires communication with the SD card. Rebuild internals.
+        let (sd_card, rtc_wrapper) = self.vmgr.free();
+        sd_card.mark_card_uninit();
+        SdManager{ extra_pins: self.extra_pins, vmgr: VolumeManager::new(sd_card, rtc_wrapper), file: None, volume: None }
     }
 
     /// Whether we are ready to write data to the SD card 

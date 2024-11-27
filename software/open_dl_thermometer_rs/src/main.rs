@@ -2,14 +2,17 @@
 #![no_main]
 #![feature(variant_count)]
 use core::{cell::RefCell, panic::PanicInfo, sync::atomic::{AtomicBool, AtomicU8, Ordering}};
-use panic_halt as _;
+extern crate alloc;
+use alloc::string::String;
 
+use embedded_sdmmc::SdCardError;
 use rp_pico::{
     entry,
     hal::{
         clocks::{ClocksManager, PeripheralClock, UsbClock}, 
         fugit::{ExtU32, RateExtU32}, 
         pwm::{self, FreeRunning, Pwm0, Slice},
+        rtc::{RealTimeClock, DateTime, DayOfWeek},
         timer::{Alarm, Alarm0}, 
         gpio, spi, usb::UsbBus, Clock, Sio, Spi, Timer, Watchdog, I2C
     },
@@ -24,7 +27,6 @@ use usbd_serial::SerialPort;
 use rtt_target::{rtt_init_print, rprintln};
 use arrayvec::ArrayString;
 use atomic_enum::atomic_enum;
-use alloc::string::String;
 
 mod config; use config::{Config, Status::*};
 mod constants; use constants::*;
@@ -44,15 +46,14 @@ use state_machine::{
     ConfigSampleRateSelectables::{self as ConRateSel, *}, 
     DatalogConfirmStopSelectables::*, 
     DatalogErrorSDFullSelectables::*, 
-    DatalogErrorSdUnexpectedRemovalSelectables as DlogSdRemovSel, 
+    DatalogErrorSDUnexpectedRemovalSelectables as DlogSdRemovSel, 
     DatalogSDSafeToRemoveSelectables as DlogSafeRemovSel, 
     DatalogSDWritingSelectables as DlogSdWrtSel, 
+    DatalogSDErrorSelectables as DlogSdErrSel, 
     DatalogTemperaturesSelectables as DlogTempSel, 
     MainmenuSelectables::*, State::*, UpdateReason, 
     ViewTemperaturesSelectables as ViewTemp
 };
-
-extern crate alloc;
 
 /* TODO:
 Figure out what errors should merely be printed versus those that should panic
@@ -111,7 +112,7 @@ fn main() -> ! {
     let mut usb_device = configure_usb(usb_bus);
 
     // RTC
-    let rtc = rp_pico::hal::rtc::RealTimeClock::new(registers.RTC, clocks.rtc_clock, &mut registers.RESETS, rp_pico::hal::rtc::DateTime{ year: 2024, month: 1, day: 1, day_of_week: rp_pico::hal::rtc::DayOfWeek::Monday, hour: 1, minute: 1, second: 1 }).unwrap();
+    let rtc = RealTimeClock::new(registers.RTC, clocks.rtc_clock, &mut registers.RESETS, DateTime{ year: 2024, month: 1, day: 1, day_of_week: DayOfWeek::Monday, hour: 1, minute: 1, second: 1 }).unwrap();
 
     // SD card manager
     let mut sd_manager = crate::sd_card::SdManager::new(spi_bus, sdcard_pins.cs, system_timer, sdcard_pins.extra, rtc);
@@ -135,7 +136,7 @@ fn main() -> ! {
     // Autodetect any connected sensors
     config.enabled_channels = temp_sensors.autodetect_sensor_channels(&mut system_timer);
 
-    println!("Initialisation complete.");
+    iprintln!("Initialisation complete.");
     
     loop {
         // Whether we are going to update state and redraw screen
@@ -160,13 +161,21 @@ fn main() -> ! {
         };
 
         // Check if the card is inserted or removed
-        monitor_sdcard_state(sd_prev_insert_state, &mut sd_manager, &mut config, &mut update_available, &clocks.peripheral_clock);
+        sd_manager = monitor_sdcard_state(sd_prev_insert_state, sd_manager, &mut config, &mut update_available, &clocks.peripheral_clock);
         sd_prev_insert_state = sd_manager.is_card_inserted();
 
-        // Deal with SD card
+        // Write to SD card if buffer is full
         if write_to_sd {
-            sd_manager.write_bytes(buffers.spi.as_bytes());
-            write_to_sd = false;
+            match sd_manager.write_bytes(buffers.spi.as_bytes()) {
+                Ok(_) => {
+                    buffers.spi.clear();
+                    write_to_sd = false;
+                },
+                Err(e) => {
+                    eprintln!("{e:?}");
+                    update_available = Some(UpdateReason::SDError(e));
+                },
+            };
         }
 
         // Serial
@@ -187,7 +196,8 @@ fn main() -> ! {
 }
 
 /// Listen for an SD card being inserted or removed and initialise, if required
-fn monitor_sdcard_state(sd_was_inserted: bool, sd_manager: &mut crate::SdManager, config: &mut Config, update_available: &mut Option<UpdateReason>, peripheral_clock: &PeripheralClock) {
+fn monitor_sdcard_state(sd_was_inserted: bool, mut sd_manager: SdManager, config: &mut Config, update_available: &mut Option<UpdateReason>, peripheral_clock: &PeripheralClock) -> SdManager {
+    let mut sd_status: Result<(), embedded_sdmmc::Error<SdCardError>> = Ok(());
     let sd_just_removed = sd_was_inserted && !sd_manager.is_card_inserted();
     let sd_just_added = !sd_was_inserted && sd_manager.is_card_inserted();
     if sd_just_removed { // SD card removed
@@ -196,7 +206,7 @@ fn monitor_sdcard_state(sd_was_inserted: bool, sd_manager: &mut crate::SdManager
             // SD card removed unexpectedly
             // Move to SD card error screen
             *update_available = Some(UpdateReason::SDRemovedUnexpectedly);
-            sd_manager.reset_after_unexpected_removal();
+            sd_manager = sd_manager.reset_after_unexpected_removal();
         }
     }
     else if sd_just_added { // SD card inserted
@@ -206,13 +216,20 @@ fn monitor_sdcard_state(sd_was_inserted: bool, sd_manager: &mut crate::SdManager
     // Beginning to datalog
     if config.status == SamplingAndDatalogging && !sd_manager.ready_to_write() {
         let filename = alloc::format!("{}.{}", String::from_utf8_lossy(&config.sd.filename), config.sd.filetype.as_str());
-        sd_manager.open_file(&filename); // TODO: Ensure this function makes ready_to_write() return true.
+        sd_status = sd_manager.try_open_file(&filename); // TODO: Ensure this function makes ready_to_write() return true.
     }
     // Just stopped datalogging
     else if config.status != SamplingAndDatalogging && !sd_manager.is_safe_to_remove() {
         // We don't need to write to the card if we're not datalogging, so make it safe to remove just in case the user removes it.
-        sd_manager.prepare_for_removal(); // TODO: Ensure this function the ready_to_remove() return true.
+        sd_status = sd_manager.prepare_for_removal(); // TODO: Ensure this function the ready_to_remove() return true.
     }
+
+    if let Err(e) = sd_status {
+        eprintln!("{e:?}");
+        *update_available = Some(UpdateReason::SDError(e));
+        config.sd.selected_for_use = false;
+    }
+    sd_manager
 }
 
 /// Stores values while they wait to be sent/used.
@@ -294,9 +311,8 @@ fn manage_serial_comms(usb_device: &mut UsbDevice<UsbBus>, serial_buffer: ArrayS
 /// 
 /// This function handles Mealy-style changes that depend on specific transitions. Next state transitions and Moore-style 'state-only' outputs handled elsewhere.
 fn service_button_event(config: &mut Config, update_reason: &UpdateReason) {
-    if *update_reason != UpdateReason::SelectButton {
-        return;
-    }
+    if *update_reason != UpdateReason::SelectButton { return }
+    
     // If we press select while we have a configurable item selected we need to toggle it
     match &config.curr_state {
         Mainmenu(View)          => (),
@@ -334,6 +350,9 @@ fn service_button_event(config: &mut Config, update_reason: &UpdateReason) {
 
         DatalogSDUnexpectedRemoval(DlogSdRemovSel::ContinueWithoutSD)   => config.sd.selected_for_use = false,
         DatalogSDUnexpectedRemoval(DlogSdRemovSel::StopDatalogging)     => (),
+        
+        DatalogSDError(DlogSdErrSel::ContinueWithoutSD)                 => (),
+        DatalogSDError(DlogSdErrSel::StopDatalogging)                   => (),
     };
 }
 /// Cycle through alphanumeric ASCII values.

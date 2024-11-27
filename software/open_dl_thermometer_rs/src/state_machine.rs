@@ -29,7 +29,9 @@ pub enum State {
     /// SD Card writes complete, safe to remove now
     DatalogSDSafeToRemove(DatalogSDSafeToRemoveSelectables),
     /// SD Card removed unexpectedly while in use
-    DatalogSDUnexpectedRemoval(DatalogErrorSdUnexpectedRemovalSelectables),
+    DatalogSDUnexpectedRemoval(DatalogErrorSDUnexpectedRemovalSelectables),
+    // Generic SD card error
+    DatalogSDError(DatalogSDErrorSelectables),
 }
 impl State {
     // Not proud of this one. Still, beats the alternatives...
@@ -46,6 +48,7 @@ impl State {
             DatalogTemperatures(sel) => DatalogTemperatures(sel.next()),
             DatalogConfirmStop(sel) => DatalogConfirmStop(sel.next()),
             DatalogErrorSDFull(sel) => DatalogErrorSDFull(sel.next()),
+            DatalogSDError(sel) => DatalogSDError(sel.next()), 
             DatalogSDWriting(sel) => DatalogSDWriting(sel.next()),
             DatalogSDSafeToRemove(sel) => DatalogSDSafeToRemove(sel.next()),
             DatalogSDUnexpectedRemoval(sel) => DatalogSDUnexpectedRemoval(sel.next()),
@@ -57,6 +60,7 @@ impl Default for State {
         Self::Mainmenu(Default::default())
     }
 }
+use embedded_sdmmc::SdCardError;
 use State::*;
 
 use num_derive::FromPrimitive;
@@ -118,11 +122,12 @@ create_selectables!(
     [ContinueWithoutSD, StopDatalogging]
 );
 create_selectables!(
-    DatalogErrorSdUnexpectedRemovalSelectables,
+    DatalogErrorSDUnexpectedRemovalSelectables,
     [ContinueWithoutSD, StopDatalogging]
 );
 create_selectables!(DatalogSDWritingSelectables, []);
 create_selectables!(DatalogSDSafeToRemoveSelectables, [Next,]);
+create_selectables!(DatalogSDErrorSelectables, [ContinueWithoutSD, StopDatalogging]);
 
 // Shorthand
 use core::default::Default as d;
@@ -132,25 +137,31 @@ use ConfigSDFilenameSelectables as ConSDName;
 use ConfigSDStatusSelectables as ConSDStat;
 use ConfigSampleRateSelectables as ConSampRate;
 use DatalogConfirmStopSelectables::*;
-use DatalogErrorSDFullSelectables::*;
+use DatalogErrorSDFullSelectables as SDFullSel;
+use DatalogErrorSDUnexpectedRemovalSelectables::*;
 use DatalogSDSafeToRemoveSelectables as DlSDSafe;
+use DatalogSDErrorSelectables as DlSDErrSel;
 use MainmenuSelectables::*;
 
 use crate::{config::Status::SamplingAndDatalogging, sd_card::SdManager};
 /// Determine the next state based on the current state and config
 pub fn next_state(config: &mut crate::config::Config, sd_manager: &mut SdManager, update_reason: &UpdateReason) {
+    // Special transitions
     if *update_reason != SelectButton {
-        match update_reason {
-            SDSafeToRemove => config.curr_state = DatalogSDSafeToRemove(d::default()),
-            SDFull => config.curr_state = DatalogErrorSDFull(d::default()),
+        config.curr_state = match update_reason {
+            SDSafeToRemove => DatalogSDSafeToRemove(d::default()),
+            SDFull => DatalogErrorSDFull(d::default()),
             SDRemovedUnexpectedly => 
-                if config.status == SamplingAndDatalogging && config.sd.selected_for_use {config.curr_state = DatalogSDUnexpectedRemoval(d::default())},
-            NextButton => config.curr_state = config.curr_state.next_selectable(),
-            _ => (),
+                if config.status == SamplingAndDatalogging && config.sd.selected_for_use {DatalogSDUnexpectedRemoval(d::default())}
+                else {config.curr_state},
+            NextButton => config.curr_state.next_selectable(),
+            SDError(_) => DatalogSDError(d::default()),
+            _ => config.curr_state,
         };
         return;
     }
 
+    // Select button transitions
     config.curr_state = match &config.curr_state {
         Mainmenu(Configure) => ConfigOutputs(d::default()),
         Mainmenu(View)      => ViewTemperatures(d::default()),
@@ -167,23 +178,29 @@ pub fn next_state(config: &mut crate::config::Config, sd_manager: &mut SdManager
             if sd_configuration_complete { ConfigSDFilename(d::default()) } 
             else { ConfigSDStatus(d::default()) }},
 
-        ConfigSDFilename(ConSDName::Next)       => ConfigChannelSelect(d::default()),
+        ConfigSDFilename(ConSDName::Next)                   => ConfigChannelSelect(d::default()),
 
-        ConfigChannelSelect(ConChanSel::Next)   => ConfigSampleRate(d::default()),
+        ConfigChannelSelect(ConChanSel::Next)               => ConfigSampleRate(d::default()),
 
-        ConfigSampleRate(ConSampRate::Next)     => Mainmenu(d::default()),
+        ConfigSampleRate(ConSampRate::Next)                 => Mainmenu(d::default()),
 
-        ViewTemperatures(_)                     => Mainmenu(d::default()),
+        ViewTemperatures(_)                                 => Mainmenu(d::default()),
 
-        DatalogTemperatures(_)                  => Mainmenu(d::default()),
+        DatalogTemperatures(_)                              => Mainmenu(d::default()),
 
-        DatalogConfirmStop(ConfirmStop)         => DatalogSDWriting(d::default()),
-        DatalogConfirmStop(CancelStop)          => DatalogTemperatures(d::default()),
+        DatalogConfirmStop(ConfirmStop)                     => DatalogSDWriting(d::default()),
+        DatalogConfirmStop(CancelStop)                      => DatalogTemperatures(d::default()),
 
-        DatalogErrorSDFull(ContinueWithoutSD)   => DatalogTemperatures(d::default()),
-        DatalogErrorSDFull(StopDatalogging)     => DatalogSDWriting(d::default()),
+        DatalogErrorSDFull(SDFullSel::ContinueWithoutSD)    => DatalogTemperatures(d::default()),
+        DatalogErrorSDFull(SDFullSel::StopDatalogging)      => DatalogSDWriting(d::default()),
 
-        DatalogSDSafeToRemove(DlSDSafe::Next)   => Mainmenu(d::default()),
+        DatalogSDSafeToRemove(DlSDSafe::Next)               => Mainmenu(d::default()),
+        
+        DatalogSDUnexpectedRemoval(ContinueWithoutSD)       => DatalogTemperatures(d::default()),
+        DatalogSDUnexpectedRemoval(StopDatalogging)         => Mainmenu(d::default()),
+
+        DatalogSDError(DlSDErrSel::ContinueWithoutSD)       => DatalogTemperatures(d::default()),
+        DatalogSDError(DlSDErrSel::StopDatalogging)         => Mainmenu(d::default()),
 
         _ => config.curr_state,
     }
@@ -204,13 +221,14 @@ pub fn state_outputs(config: &mut crate::config::Config) {
         DatalogConfirmStop(_)           => SamplingAndDatalogging,
         DatalogErrorSDFull(_)           => SamplingAndDatalogging,
         DatalogSDUnexpectedRemoval(_)   => SamplingAndDatalogging,
+        DatalogSDError(_)               => SamplingAndDatalogging,
         DatalogSDWriting(_)             => Idle,
         DatalogSDSafeToRemove(_)        => Idle,
     }
 }
 
 /// Information about why we are updaing
-#[derive(Copy, Clone, PartialEq)]
+#[derive(Clone)]
 pub enum UpdateReason {
     NextButton,
     SelectButton,
@@ -218,5 +236,19 @@ pub enum UpdateReason {
     SDSafeToRemove,
     SDFull,
     SDRemovedUnexpectedly,
+    SDError(embedded_sdmmc::Error<SdCardError>),
 }
 use UpdateReason::*;
+
+// embedded_sdmmc::Error and embedded_sdmmc::sdcard::SdCardError don't implement PartialEq...
+impl PartialEq for UpdateReason {
+    fn eq(&self, other: &Self) -> bool {
+        use embedded_sdmmc::Error::DeviceError;
+        // If the error has internal values match those
+        match (self, other) {
+            (SDError(DeviceError(e0)), SDError(DeviceError(e1)))    => core::mem::discriminant(e0) == core::mem::discriminant(e1),
+            (SDError(error0), SDError(error1))                      => core::mem::discriminant(error0) == core::mem::discriminant(error1),
+            _                                                       => core::mem::discriminant(self) == core::mem::discriminant(other),
+        }
+    }
+}
