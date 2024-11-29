@@ -101,12 +101,6 @@ const SELECTABLE_PLACEHOLDER: u8 = b'%';
 /// These should be filled out as dynamic elements, but if selected the blinking cursor should be activated
 const DYNAMIC_AND_SELECTABLE_PLACEHOLDER: u8 = b'#';
 
-struct DynamicElement {
-    length: usize,
-    row: usize,
-    start_col: usize,
-}
-
 const MAINMENU_SCREEN: Screen = [
     *b"OpenDL Thermometer  ",
     *b"%Configure          ",
@@ -242,29 +236,42 @@ fn substitute_selected_elements(screen: &mut Screen, selected_pos: Option<usize>
     }
     cursor_pos
 }
+
+#[derive(Default)]
+struct DynamicElement {
+    row: usize,
+    start_col: usize,
+    end_col: usize,
+}
+
+/// Find the locations of dynamic elements within a Screen. 
 fn find_dynamic_element_placeholders(screen: &Screen) -> ArrayVec<DynamicElement, MAX_DYNAMIC_ELEMENTS> {
     let mut elements: ArrayVec<DynamicElement, MAX_DYNAMIC_ELEMENTS> = ArrayVec::new();
-    let mut is_in_dynamic_placeholder = false;
-    let mut length = 0;
-    let mut row = 0;
-    let mut start_col = 0;
-    for (i, rw) in screen.iter().enumerate() {
-        for (j, col) in rw.iter().enumerate() {
-            if *col == DYNAMIC_PLACEHOLDER || *col == DYNAMIC_AND_SELECTABLE_PLACEHOLDER {
+    let mut dyn_elem = DynamicElement::default();
+    for (i, &rw) in screen.iter().enumerate() {
+        let mut is_in_dynamic_placeholder = false;
+        for (j, &col) in rw.iter().enumerate() {
+            if col == DYNAMIC_PLACEHOLDER || col == DYNAMIC_AND_SELECTABLE_PLACEHOLDER {
                 if is_in_dynamic_placeholder {
-                    length += 1;
+                    dyn_elem.end_col += 1;
                 }
                 else {
                     is_in_dynamic_placeholder = true;
-                    length = 1;
-                    row = i;
-                    start_col = j;
+                    dyn_elem.row = i;
+                    dyn_elem.start_col = j;
+                    dyn_elem.end_col = j+1;
                 }
             }
             else if is_in_dynamic_placeholder {
-                elements.push(DynamicElement{length, row, start_col});
+                elements.push(dyn_elem);
+                dyn_elem = DynamicElement::default();
                 is_in_dynamic_placeholder = false;
             }
+        }
+        if is_in_dynamic_placeholder{
+            // Dynamic elements can't span more than one row, so end it now
+            elements.push(dyn_elem);
+            dyn_elem = DynamicElement::default();
         }
     }
     elements
@@ -359,7 +366,7 @@ fn substitute_dynamic_elements(screen: &mut Screen, config: &Config, sdcard_info
         _ => (),
     }
     for (loc, str) in dynamic_element_locations.iter().zip(dynamic_strs) {
-        screen[loc.row][loc.start_col..loc.start_col+loc.length].clone_from_slice(&str);
+        screen[loc.row][loc.start_col..loc.end_col].clone_from_slice(&str);
     }
 }
 
