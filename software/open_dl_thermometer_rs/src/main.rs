@@ -120,7 +120,7 @@ fn main() -> ! {
     let mut sd_prev_insert_state = false;
 
     // Display
-    let mut display_manager = IncrementalDisplayWriter::new(&config, sd_manager.get_card_info(), &mut i2c);
+    let mut display_manager = IncrementalDisplayWriter::new(&config, sd_manager.get_card_info(), &mut system_timer, &mut i2c);
     display_manager.load_custom_chars(&mut system_timer);
 
     // PIO and temp sensor controller

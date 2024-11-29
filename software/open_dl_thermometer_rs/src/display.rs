@@ -9,15 +9,17 @@ use crate::{lmt01::CHARS_PER_READING, NUM_SENSOR_CHANNELS};
 
 pub const DISPLAY_I2C_ADDRESS: u8 = 0x27;
 
+type I2CInterface = liquid_crystal::I2C<rp_pico::hal::I2C<rp_pico::pac::I2C0, (DisplaySda, DisplayScl)>>;
 /// Top-level component for managing the display. 
-pub struct IncrementalDisplayWriter<'a, T:rp_pico::hal::i2c::I2cDevice> {
+pub struct IncrementalDisplayWriter<'a> {
     screen: Screen,
     next_pos: Option<(usize, usize)>,
-    driver: liquid_crystal::LiquidCrystal<'a, liquid_crystal::I2C<rp_pico::hal::I2C<T, (DisplaySda, DisplayScl)>>, {SCREEN_COLS as u8}, SCREEN_ROWS>,
+    driver: liquid_crystal::LiquidCrystal<'a, I2CInterface, {SCREEN_COLS as u8}, SCREEN_ROWS>,
 }
-impl<'a, T:rp_pico::hal::i2c::I2cDevice> IncrementalDisplayWriter<'a, T> {
-    pub fn new(config: &Config, sdcard_info: SdCardInfo, liquid_crystal_i2c_interface: &'a mut liquid_crystal::I2C<rp_pico::hal::I2C<T, (DisplaySda, DisplayScl)>>) -> Self {
-        let driver = liquid_crystal::LiquidCrystal::new(liquid_crystal_i2c_interface, Bus4Bits, LCD20X4);
+impl<'a> IncrementalDisplayWriter<'a> {
+    pub fn new(config: &Config, sdcard_info: SdCardInfo, delay: &mut impl liquid_crystal::DelayNs, liquid_crystal_i2c_interface: &'a mut I2CInterface) -> Self {
+        let mut driver = liquid_crystal::LiquidCrystal::new(liquid_crystal_i2c_interface, Bus4Bits, LCD20X4);
+        driver.begin(delay);
         Self {screen: determine_screen(config, sdcard_info, [None;NUM_SENSOR_CHANNELS]).0, next_pos: Some((0,0)), driver}
     }
     /// If the display isn't up to date then send one character to the display.
@@ -31,12 +33,16 @@ impl<'a, T:rp_pico::hal::i2c::I2cDevice> IncrementalDisplayWriter<'a, T> {
             self.driver.write(delay, liquid_crystal::Text(core::str::from_utf8(&[next_u8]).unwrap_or("#")));
             self.next_pos = match (row, col) {
                 (SCREEN_MAX_ROW, SCREEN_MAX_COL) => None,               // Done
-                (_             , SCREEN_MAX_COL) => Some((row+1, 0)),   // Next row
+                (_             , SCREEN_MAX_COL) => {                   // Next row
+                    self.driver.set_cursor(delay, row+1, 0); // Our display uses different row layouts in memory. If this is removed the rows are printed out in the wrong order.
+                    Some((row+1, 0))
+                },   
                 (_             , _             ) => Some((row, col+1)), // Next column
             };
         }
         self.next_pos.is_some()
     }
+
     /// Change what we want to be displayed on the screen, and marks the screen as needing updating. 
     /// Does not actually update the display. You must call `incremental_update()`
     fn update_display_buffer(&mut self, screen: Screen) {
