@@ -10,17 +10,20 @@ pub struct SdManager {
     extra_pins: SdCardExtraPins,
     vmgr: VolumeManager<embedded_sdmmc::SdCard<SDCardSPIDriver, Timer>, RtcWrapper>,
     file: Option<embedded_sdmmc::filesystem::RawFile>,
-    volume: Option<RawVolume>
+    volume: Option<RawVolume>,
+    // What the insertion state of the SD card was in the previous loop. Used to compare for insertions/removals.
+    card_previously_inserted: bool,
 }
 const MBR_MAX_PARTITIONS: usize = 4;
 type SpiBus0Enabled = Spi<Enabled,SPI0,(SdCardMosi, SdCardMiso, SdCardSck), {crate::BITS_PER_SPI_PACKET}>;
 impl SdManager {
-    pub fn new(spi_bus: SpiBus0Enabled, cs: SdCardCs, delay: Timer, extra_pins: SdCardExtraPins, rtc: RealTimeClock) -> Self {
+    pub fn new(spi_bus: SpiBus0Enabled, cs: SdCardCs, delay: Timer, mut extra_pins: SdCardExtraPins, rtc: RealTimeClock) -> Self {
         let rtc_wrapper = RtcWrapper{rtc};
         let spi_driver = SDCardSPIDriver{spi_bus, cs};
         let new_card = embedded_sdmmc::SdCard::new(spi_driver, delay);
 
         Self {
+            card_previously_inserted: extra_pins.card_detect.is_low().unwrap(),
             extra_pins,
             vmgr: VolumeManager::new(new_card, rtc_wrapper),
             file: None,
@@ -105,6 +108,18 @@ impl SdManager {
         detected
     }
 
+    /// Whether a card has been physically inserted or removed
+    pub fn get_physical_card_events(&mut self) -> SdCardEvent {
+        let currently_inserted = self.is_card_inserted();
+        let out = match (self.card_previously_inserted, currently_inserted) {
+            (true, false)   => SdCardEvent::WasJustRemoved,
+            (false, true)   => SdCardEvent::WasJustInserted,
+            _               => SdCardEvent::NoChange,
+        };
+        self.card_previously_inserted = currently_inserted;
+        out
+    }
+
     /// Whether the SD card is writable due to the external write protect latch
     pub fn is_card_writable(&mut self) -> bool {
         let Ok(writable) = self.extra_pins.write_protect.is_low();
@@ -136,7 +151,7 @@ impl SdManager {
         // Can't close open files or volumes as this requires communication with the SD card. Rebuild internals.
         let (sd_card, rtc_wrapper) = self.vmgr.free();
         sd_card.mark_card_uninit();
-        SdManager{ extra_pins: self.extra_pins, vmgr: VolumeManager::new(sd_card, rtc_wrapper), file: None, volume: None }
+        SdManager{ extra_pins: self.extra_pins, vmgr: VolumeManager::new(sd_card, rtc_wrapper), file: None, volume: None, card_previously_inserted: self.card_previously_inserted }
     }
 
     /// Whether we are ready to write data to the SD card 
@@ -154,6 +169,12 @@ impl SdManager {
             free_space_bytes: Some(self.get_free_space_bytes())
         }
     }
+}
+
+pub enum SdCardEvent {
+    WasJustInserted,
+    WasJustRemoved,
+    NoChange,
 }
 
 #[derive(Default)]

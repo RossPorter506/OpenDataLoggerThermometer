@@ -6,20 +6,21 @@ extern crate alloc;
 use alloc::string::String;
 
 use embedded_sdmmc::SdCardError;
+use liquid_crystal::DelayNs;
 use rp_pico::{
     entry,
     hal::{
-        clocks::{ClocksManager, PeripheralClock, UsbClock}, 
-        fugit::{ExtU32, RateExtU32}, 
-        pwm::{self, FreeRunning, Pwm0, Slice},
-        rtc::{RealTimeClock, DateTime, DayOfWeek},
-        timer::{Alarm, Alarm0}, 
-        gpio, spi, usb::UsbBus, Clock, Sio, Spi, Timer, Watchdog, I2C
+        clocks::{ClocksManager, PeripheralClock, RtcClock, SystemClock, UsbClock}, Clock, Watchdog,
+        fugit::{ExtU32, RateExtU32}, gpio, 
+        pwm::{self, FreeRunning, Pwm0, Slice}, 
+        rtc::{DateTime, DayOfWeek, RealTimeClock}, spi, Spi,
+        timer::{Alarm, Alarm0}, Timer,
+        usb::UsbBus, Sio, I2C
     },
-    pac::{self, interrupt, CLOCKS, I2C0, IO_BANK0, PADS_BANK0, PLL_SYS, PLL_USB, PWM, RESETS, SIO, SPI0, TIMER, USBCTRL_DPRAM, USBCTRL_REGS, WATCHDOG, XOSC},
+    pac::{self, interrupt, CLOCKS, I2C0, IO_BANK0, PADS_BANK0, PIO0, PIO1, PLL_SYS, PLL_USB, PWM, RESETS, RTC, SIO, SPI0, TIMER, USBCTRL_DPRAM, USBCTRL_REGS, WATCHDOG, XOSC},
 };
 use critical_section::Mutex;
-use sd_card::SdManager;
+use sd_card::{SdCardInfo, SdManager, SdCardEvent};
 use serial::MAX_SNAPSHOT_LEN;
 use static_cell::StaticCell;
 use usb_device::{class_prelude::*, prelude::*};
@@ -95,41 +96,26 @@ fn main() -> ! {
     // System clocks
     let (_watchdog, clocks) = configure_clocks(registers.WATCHDOG, registers.XOSC, registers.CLOCKS, registers.PLL_SYS, registers.PLL_USB, &mut registers.RESETS);
 
-    // System configuration
-    let mut config = Config::new();
-
     // Timers
     let (mut system_timer, mut sample_rate_timer, mut sensors_ready_timer) = configure_timers(registers.PWM, registers.TIMER, &mut registers.RESETS, &clocks);
 
-    // I2C
-    let mut i2c = configure_i2c(registers.I2C0, display_pins, &mut registers.RESETS, &clocks);
+    // USB - Also enables USB serial printing
+    let mut usb_device = configure_usb(registers.USBCTRL_REGS, registers.USBCTRL_DPRAM, &mut registers.RESETS, clocks.usb_clock);
 
-    // SPI
-    let spi_bus = configure_spi(registers.SPI0, sdcard_pins.spi, &mut registers.RESETS, &clocks);
-
-    // USB
-    let usb_bus = configure_usb_bus(registers.USBCTRL_REGS, registers.USBCTRL_DPRAM, &mut registers.RESETS, clocks.usb_clock);
-    let mut usb_device = configure_usb(usb_bus);
-
-    // RTC
-    let rtc = RealTimeClock::new(registers.RTC, clocks.rtc_clock, &mut registers.RESETS, DateTime{ year: 2024, month: 1, day: 1, day_of_week: DayOfWeek::Monday, hour: 1, minute: 1, second: 1 }).unwrap();
+    // System configuration
+    let mut config = Config::new();
 
     // SD card manager
-    let mut sd_manager = crate::sd_card::SdManager::new(spi_bus, sdcard_pins.cs, system_timer, sdcard_pins.extra, rtc);
-    // What the insertion state of the SD card was in the previous loop. Used to compare for insertions/removals.
-    let mut sd_prev_insert_state = false;
-
-    // Display
-    let mut display_manager = IncrementalDisplayWriter::new(&config, sd_manager.get_card_info(), &mut system_timer, &mut i2c);
-    display_manager.load_custom_chars(&mut system_timer);
-
-    // PIO and temp sensor controller
-    let pio_state_machines = lmt01::configure_pios_for_lmt01(registers.PIO0, registers.PIO1, &mut registers.RESETS, &temp_sense);
-    let mut temp_sensors = TempSensors::new(temp_power, temp_sense, pio_state_machines);
-
+    let mut sd_manager = configure_sdcard(registers.SPI0, registers.RTC, sdcard_pins, clocks.rtc_clock, system_timer, &mut registers.RESETS, &clocks.peripheral_clock);
     // Write controls for SD card. false when transmissions are complete, for now
     let mut write_to_sd = false;
 
+    // Display
+    let mut display_manager = configure_display(registers.I2C0, display_pins, sd_manager.get_card_info(), &config, &clocks.system_clock, &mut system_timer, &mut registers.RESETS);
+
+    // Temp sensors
+    let mut temp_sensors = configure_sensors(registers.PIO0, registers.PIO1, temp_sense, temp_power, &mut registers.RESETS);
+    
     // Buffers
     let mut buffers = Buffers::new();
 
@@ -161,8 +147,7 @@ fn main() -> ! {
         };
 
         // Check if the card is inserted or removed
-        sd_manager = monitor_sdcard_state(sd_prev_insert_state, sd_manager, &mut config, &mut update_available, &clocks.peripheral_clock);
-        sd_prev_insert_state = sd_manager.is_card_inserted();
+        sd_manager = monitor_sdcard_state(sd_manager, &mut config, &mut update_available, &clocks.peripheral_clock);
 
         // Write to SD card if buffer is full
         if write_to_sd {
@@ -196,21 +181,22 @@ fn main() -> ! {
 }
 
 /// Listen for an SD card being inserted or removed and initialise, if required
-fn monitor_sdcard_state(sd_was_inserted: bool, mut sd_manager: SdManager, config: &mut Config, update_available: &mut Option<UpdateReason>, peripheral_clock: &PeripheralClock) -> SdManager {
+fn monitor_sdcard_state(mut sd_manager: SdManager, config: &mut Config, update_available: &mut Option<UpdateReason>, peripheral_clock: &PeripheralClock) -> SdManager {
     let mut sd_status: Result<(), embedded_sdmmc::Error<SdCardError>> = Ok(());
-    let sd_just_removed = sd_was_inserted && !sd_manager.is_card_inserted();
-    let sd_just_added = !sd_was_inserted && sd_manager.is_card_inserted();
-    if sd_just_removed { // SD card removed
 
-        if !sd_manager.is_safe_to_remove() {
-            // SD card removed unexpectedly
-            // Move to SD card error screen
-            *update_available = Some(UpdateReason::SDRemovedUnexpectedly);
-            sd_manager = sd_manager.reset_after_unexpected_removal();
-        }
-    }
-    else if sd_just_added { // SD card inserted
-        sd_manager.initialise_card(peripheral_clock);
+    match sd_manager.get_physical_card_events() {
+        SdCardEvent::WasJustInserted => {
+            sd_manager.initialise_card(peripheral_clock);
+        },
+        SdCardEvent::WasJustRemoved => {
+            if !sd_manager.is_safe_to_remove() {
+                // SD card removed unexpectedly
+                // Move to SD card error screen
+                *update_available = Some(UpdateReason::SDRemovedUnexpectedly);
+                sd_manager = sd_manager.reset_after_unexpected_removal();
+            }
+        },
+        SdCardEvent::NoChange => (),
     }
 
     // Beginning to datalog
@@ -356,7 +342,7 @@ fn service_button_event(config: &mut Config, update_reason: &UpdateReason) {
     };
 }
 /// Cycle through alphanumeric ASCII values.
-/// a -> b, ... z -> 0, ... 9 -> a
+/// a -> b -> ... z -> 0 -> ... 9 -> ' ' ->  a
 fn cycle_ascii_char(char: &mut u8) {
     *char = match *char {
         b'a'..=b'y' => *char + 1,
@@ -505,15 +491,15 @@ fn configure_button_pins(select: pcb_mapping::SelectButton, next: pcb_mapping::N
 }
 
 const BITS_PER_SPI_PACKET: u8 = 8;
-fn configure_spi(spi0: SPI0, sdcard_pins: SdCardSPIPins, resets: &mut RESETS, clocks: &ClocksManager) -> rp_pico::hal::Spi<spi::Enabled, SPI0, (SdCardMosi, SdCardMiso, SdCardSck), BITS_PER_SPI_PACKET> {
+fn configure_spi(spi0: SPI0, sdcard_pins: SdCardSPIPins, resets: &mut RESETS, peripheral_clock: &PeripheralClock) -> rp_pico::hal::Spi<spi::Enabled, SPI0, (SdCardMosi, SdCardMiso, SdCardSck), BITS_PER_SPI_PACKET> {
     let sdcard_spi = Spi::<_,_,_,BITS_PER_SPI_PACKET>::new(spi0, (sdcard_pins.mosi, sdcard_pins.miso, sdcard_pins.sck));
     
     // Start at 400kHz before negotiation, then 25MHz after.
-    sdcard_spi.init(resets, clocks.peripheral_clock.freq(), 400.kHz(), spi::FrameFormat::MotorolaSpi(embedded_hal::spi::MODE_0))
+    sdcard_spi.init(resets, peripheral_clock.freq(), 400.kHz(), spi::FrameFormat::MotorolaSpi(embedded_hal::spi::MODE_0))
 }
 
-fn configure_i2c(i2c0: I2C0, display_pins: DisplayPins, resets: &mut RESETS, clocks: &ClocksManager,) -> liquid_crystal::I2C<rp_pico::hal::I2C<I2C0, (DisplaySda, DisplayScl)>> {
-    let display_i2c = I2C::i2c0(i2c0, display_pins.sda, display_pins.scl, 100.kHz(), resets, clocks.system_clock.freq());
+fn configure_i2c(i2c0: I2C0, display_pins: DisplayPins, resets: &mut RESETS, system_clock: &SystemClock,) -> liquid_crystal::I2C<rp_pico::hal::I2C<I2C0, (DisplaySda, DisplayScl)>> {
+    let display_i2c = I2C::i2c0(i2c0, display_pins.sda, display_pins.scl, 100.kHz(), resets, system_clock.freq());
 
     liquid_crystal::I2C::new(display_i2c, display::DISPLAY_I2C_ADDRESS)
 }
@@ -552,27 +538,24 @@ fn configure_timers(pwm: PWM, timer: TIMER, resets: &mut RESETS, clocks: &Clocks
     (system_timer, sample_rate_timer, sensors_ready_timer)
 }
 
-fn configure_usb_bus(usbctrl_regs: USBCTRL_REGS, usbctrl_dpram: USBCTRL_DPRAM, resets: &mut RESETS, usb_clock: UsbClock) -> UsbBusAllocator<UsbBus> {
-    UsbBusAllocator::new(rp_pico::hal::usb::UsbBus::new(
+fn configure_usb(usbctrl_regs: USBCTRL_REGS, usbctrl_dpram: USBCTRL_DPRAM, resets: &mut RESETS, usb_clock: UsbClock) -> UsbDevice<'static, UsbBus> {
+    let usb_bus = UsbBusAllocator::new(rp_pico::hal::usb::UsbBus::new(
         usbctrl_regs, usbctrl_dpram,
         usb_clock, true, resets,
-    ))
-}
-
-fn configure_usb(usb_bus: UsbBusAllocator<UsbBus>) -> UsbDevice<'static, UsbBus> {
+    ));
     // In order to emulate the println! macros the USB bus reference must be 'static.
     // Move the USB bus into a StaticCell to get a 'static reference to it
     static USB_BUS: StaticCell<UsbBusAllocator<UsbBus>> = StaticCell::new();
-    let usb_bus: &'static UsbBusAllocator<UsbBus> = USB_BUS.init(usb_bus); 
+    let usb_bus_ref: &'static UsbBusAllocator<UsbBus> = USB_BUS.init(usb_bus); 
 
     // Generate and store USB serial port in static variable so we can debug print anywhere
-    let usb_serial = SerialPort::new(usb_bus);
+    let usb_serial = SerialPort::new(usb_bus_ref);
     critical_section::with(|cs| {
         serial::USB_SERIAL.borrow(cs).replace(Some(usb_serial));
     });
 
     // Create a USB device with a fake VID and PID
-    let usb_dev = UsbDeviceBuilder::new(usb_bus, UsbVidPid(0x16c0, 0x27dd))
+    let usb_dev = UsbDeviceBuilder::new(usb_bus_ref, UsbVidPid(0x16c0, 0x27dd))
         .strings(&[StringDescriptors::default()
             .manufacturer("Fake company") // TODO
             .product("Serial port") 
@@ -584,6 +567,25 @@ fn configure_usb(usb_bus: UsbBusAllocator<UsbBus>) -> UsbDevice<'static, UsbBus>
     usb_dev
 }
 
+fn configure_sensors(pio0: PIO0, pio1: PIO1, temp_sense: TempSensePins, temp_power: TempPowerPins, resets: &mut RESETS) -> TempSensors {
+    let pio_state_machines = lmt01::configure_pios_for_lmt01(pio0, pio1, resets, &temp_sense);
+    TempSensors::new(temp_power, temp_sense, pio_state_machines)
+}
+
+fn configure_display(i2c0: I2C0, display_pins: DisplayPins, card_info: SdCardInfo, config: & Config, system_clock: & SystemClock, delay: & mut impl DelayNs, resets: & mut RESETS) -> IncrementalDisplayWriter<'static> {
+    let i2c = configure_i2c(i2c0, display_pins, resets, system_clock);
+    static I2C: StaticCell<liquid_crystal::I2C<rp_pico::hal::I2C<I2C0, (DisplaySda, DisplayScl)>>> = StaticCell::new();
+    let i2c_static_ref = I2C.init(i2c);
+    let mut display_manager = IncrementalDisplayWriter::new(config, card_info, delay, i2c_static_ref);
+    display_manager.load_custom_chars(delay);
+    display_manager
+}
+
+fn configure_sdcard(spi0: SPI0, rtc: RTC, sdcard_pins: SdCardPins, rtc_clock: RtcClock, delay: Timer, resets: &mut RESETS, peripheral_clock: &PeripheralClock) -> SdManager {
+    let spi_bus = configure_spi(spi0, sdcard_pins.spi, resets, peripheral_clock);
+    let rtc = RealTimeClock::new(rtc, rtc_clock, resets, DateTime{ year: 2024, month: 1, day: 1, day_of_week: DayOfWeek::Monday, hour: 1, minute: 1, second: 1 }).unwrap();
+    SdManager::new(spi_bus, sdcard_pins.cs, delay, sdcard_pins.extra, rtc)
+}
 /// Convenience trait for relaxed atomic reads/writes.
 trait RelaxedIO {
     type Inner;
