@@ -10,6 +10,7 @@ pub struct SdManager {
     extra_pins: SdCardExtraPins,
     vmgr: VolumeManager<embedded_sdmmc::SdCard<SDCardSPIDriver, Timer>, RtcWrapper>,
     file: Option<embedded_sdmmc::filesystem::RawFile>,
+    root_dir: Option<RawDirectory>,
     volume: Option<RawVolume>,
     // What the insertion state of the SD card was in the previous loop. Used to compare for insertions/removals.
     card_previously_inserted: bool,
@@ -27,6 +28,7 @@ impl SdManager {
             extra_pins,
             vmgr: VolumeManager::new(new_card, rtc_wrapper),
             file: None,
+            root_dir: None,
             volume: None,
         }
     }
@@ -51,6 +53,7 @@ impl SdManager {
         // These could totally fail though
         let root_dir = self.vmgr.open_root_dir(vol)?;
         let file = self.vmgr.open_file_in_dir(root_dir, name, Mode::ReadWriteCreateOrTruncate)?;
+        self.root_dir = Some(root_dir);
         self.file = Some(file);
         Ok(())
     }
@@ -129,19 +132,23 @@ impl SdManager {
     /// Prepare the card for safe removal. The card is safe to remove after this function finishes.
     pub fn prepare_for_removal(&mut self) -> Result<(), embedded_sdmmc::Error<SdCardError>>{
         self.close_file()?;
+        self.close_root_dir()?;
         self.close_volume()
     }
 
     fn close_file(&mut self) -> Result<(), embedded_sdmmc::Error<SdCardError>>{
         let Some(file) = self.file.take() else { return Ok(()) };
-        file.to_file(&mut self.vmgr).close()
+        self.vmgr.close_file(file)
+    }
+
+    fn close_root_dir(&mut self) -> Result<(), embedded_sdmmc::Error<SdCardError>> {
+        let Some(root_dir) = self.root_dir.take() else { return Ok(()) };
+        self.vmgr.close_dir(root_dir)
     }
 
     fn close_volume(&mut self) -> Result<(), embedded_sdmmc::Error<SdCardError>>{
-        if let Some(raw_vol) = self.volume.take() { 
-            return raw_vol.to_volume(&mut self.vmgr).close();
-        }
-        Ok(())
+        let Some(raw_vol) = self.volume.take() else { return Ok(()) };
+        self.vmgr.close_volume(raw_vol)
     }
 
     /// Reset the state of the sd_manager and all subcomponents after an SD card is unexpectedly removed. 
@@ -151,7 +158,7 @@ impl SdManager {
         // Can't close open files or volumes as this requires communication with the SD card. Rebuild internals.
         let (sd_card, rtc_wrapper) = self.vmgr.free();
         sd_card.mark_card_uninit();
-        SdManager{ extra_pins: self.extra_pins, vmgr: VolumeManager::new(sd_card, rtc_wrapper), file: None, volume: None, card_previously_inserted: self.card_previously_inserted }
+        SdManager{ extra_pins: self.extra_pins, vmgr: VolumeManager::new(sd_card, rtc_wrapper), file: None, root_dir: None, volume: None, card_previously_inserted: self.card_previously_inserted }
     }
 
     /// Whether we are ready to write data to the SD card 
