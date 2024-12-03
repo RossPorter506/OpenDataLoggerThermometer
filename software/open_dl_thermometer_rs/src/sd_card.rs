@@ -1,3 +1,4 @@
+use alloc::vec::Vec;
 use embedded_hal::{digital::{InputPin, OutputPin}, spi::{ErrorType, SpiBus, SpiDevice}};
 use embedded_sdmmc::*;
 use rp_pico::{hal::{clocks::PeripheralClock, rtc::RealTimeClock, spi::Enabled, Clock, Spi, Timer}, pac::SPI0};
@@ -80,15 +81,62 @@ impl SdManager {
 
     /// Get the number of bytes free on the SD card
     pub fn get_free_space_bytes(&mut self) -> u64 {
-        let Some(file) = self.file else {
-            eprintln!("No file open");
-            return 0;
-        };
-        let mut my_file = embedded_sdmmc::filesystem::RawFile::to_file(file, &mut self.vmgr);
-        let total_space = my_file.length();
+        let total_space = self.get_partition_size();
+        let used_space: u64 = self.get_volume_used_space();
+
+        total_space - used_space
+    }
+
+    fn get_partition_size(&mut self) -> u64 {
+        // Read MBR (first 512 bytes on disk)
+        let mbr: [u8; 512] = todo!();
+        /// Volume information begins at address 0x1BE in the MBR. 
+        const PARTITION_DATA_OFFSET: usize = 0x1BE;
+        /// The MBR data for each partition is 16 bytes.
+        const PARTITION_DATA_SIZE: usize = 16;
+
+        let our_partition_index: usize = todo!(); // Which partition we have open - 0, 1, 2, 3
+        let our_partition_offset = PARTITION_DATA_OFFSET + PARTITION_DATA_SIZE*our_partition_index; // 0x1BE if index = 0, 0x1CE if index = 1, etc.
+        let our_partition_data: [u8; 16] = mbr[our_partition_offset..our_partition_offset+PARTITION_DATA_SIZE].try_into().unwrap();
+        // Number of sectors in volume is the last 4 bytes of the volume information
+        let our_partition_length_data: [u8; 4] = our_partition_data[12..16].try_into().unwrap();
+        // Use u32::from_le_bytes() to convert little endian [u8; 4] to u32
+        let our_partition_length_sectors = u32::from_le_bytes(our_partition_length_data);
+        let total_space_bytes: u64 = our_partition_length_sectors as u64 * 512; // TODO: Is it always 512 bytes/sector?
+        total_space_bytes
+    } 
+
+    /// Calculate used space in volume. Walk the filesystem, get the length of each file. Sum them.
+    fn get_volume_used_space(&mut self) -> u64 {
+        let Some(root_dir) = self.root_dir else { todo!() };
+        self.get_folder_size(root_dir)
+    }
+
+    /// Recursively get the size of a folder
+    fn get_folder_size(&mut self, raw_dir: RawDirectory) -> u64 {
+        let mut total: u64 = 0;
+        let (mut files, mut folders) = (Vec::new(), Vec::new());
         
-        // find partition size
-        0
+        self.vmgr.iterate_dir(raw_dir, |dir_entry: &DirEntry| {
+            if dir_entry.attributes.is_directory() {
+                folders.push(dir_entry.clone());
+            }
+            else {
+                files.push(dir_entry.clone());
+            }
+        }).unwrap();
+        self.vmgr.close_dir(raw_dir).unwrap();
+
+        for file_info in files {
+            total += file_info.size as u64;
+        }
+        for folder_info in folders {
+            let folder = self.vmgr.open_dir(raw_dir, folder_info.name).unwrap(); // TODO: Potentially fallible, we may hit the max number of open folders
+            // Recurse
+            total += self.get_folder_size(folder);
+            self.vmgr.close_dir(folder).unwrap();
+        }
+        total
     }
 
     /// Initialise the SD card after insertion. Must be done before the SD card can be communicated with
