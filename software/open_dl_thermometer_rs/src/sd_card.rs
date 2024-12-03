@@ -6,13 +6,18 @@ use rp_pico::hal::fugit::RateExtU32;
 
 use crate::{eprintln, pcb_mapping::{SdCardCs, SdCardExtraPins, SdCardMiso, SdCardMosi, SdCardSck}};
 
+#[derive(Copy, Clone)]
+struct VolumeInfo {
+    root_dir: RawDirectory,
+    volume: RawVolume,
+    volume_id: usize,
+}
 
 pub struct SdManager {
     extra_pins: SdCardExtraPins,
     vmgr: VolumeManager<embedded_sdmmc::SdCard<SDCardSPIDriver, Timer>, RtcWrapper>,
-    file: Option<embedded_sdmmc::filesystem::RawFile>,
-    root_dir: Option<RawDirectory>,
-    volume: Option<RawVolume>,
+    volume_info: Option<VolumeInfo>,
+    file: Option<RawFile>,
     // What the insertion state of the SD card was in the previous loop. Used to compare for insertions/removals.
     card_previously_inserted: bool,
 }
@@ -28,39 +33,43 @@ impl SdManager {
             card_previously_inserted: extra_pins.card_detect.is_low().unwrap(),
             extra_pins,
             vmgr: VolumeManager::new(new_card, rtc_wrapper),
+            volume_info: None,
             file: None,
-            root_dir: None,
-            volume: None,
         }
     }
 
-    /// Whether there is a volume on the SD card that is formatted in a way we can understand
+    /// Whether there is a volume on the SD card that is formatted in a way we can understand.
+    /// 
+    /// If yes, opens the volume.
     pub fn is_card_formatted(&mut self) -> bool {
-        if self.volume.is_some() { return true }
-        // Check for any readable volumes
-        for i in 0..MBR_MAX_PARTITIONS {
-            if let Ok(vol) = self.vmgr.open_volume(VolumeIdx(i)) {
-                self.volume = Some(vol.to_raw_volume());
-                return true;
-            }
+        self.try_open_volume().is_ok()
+    }
+
+    fn try_open_volume(&mut self) -> Result<VolumeInfo, embedded_sdmmc::Error<SdCardError>> {
+        if let Some(volume_info) = self.volume_info {
+            return Ok(volume_info)
         }
-        false
+        
+        for i in 0..MBR_MAX_PARTITIONS {
+            let Ok(volume) = self.vmgr.open_raw_volume(VolumeIdx(i)) else { continue };
+            let root_dir = self.vmgr.open_root_dir(volume).unwrap();
+            let volume_info = VolumeInfo{root_dir, volume, volume_id: i};
+            self.volume_info = Some(volume_info);
+            return Ok(volume_info)
+        }
+        Err(embedded_sdmmc::Error::FormatError("No readable volumes"))
     }
 
     /// Open a file for writing, creating it if it doesn't exist already. If it does exist the contents are cleared.
     pub fn try_open_file(&mut self, name: &str) -> Result<(), embedded_sdmmc::Error<SdCardError>> {
-        // This should be infallible, as we check for readable volumes during the setup screen.
-        let vol = self.volume.ok_or(embedded_sdmmc::Error::FormatError("No readable volumes"))?;
-        // These could totally fail though
-        let root_dir = self.vmgr.open_root_dir(vol)?;
-        let file = self.vmgr.open_file_in_dir(root_dir, name, Mode::ReadWriteCreateOrTruncate)?;
-        self.root_dir = Some(root_dir);
+        let volume_info = self.try_open_volume()?;
+        let file = self.vmgr.open_file_in_dir(volume_info.root_dir, name, Mode::ReadWriteCreateOrTruncate)?;
         self.file = Some(file);
         Ok(())
     }
 
     /// Whether we have a particular file open at the moment
-    pub fn is_file_open(&mut self) -> bool { 
+    pub fn is_file_open(&mut self) -> bool {
         self.file.is_some()
     }
 
@@ -70,8 +79,7 @@ impl SdManager {
             eprintln!("No file open to write to."); return Err(embedded_sdmmc::Error::NotFound);
         };
         
-        file.to_file(&mut self.vmgr).write(bytes)?;
-        Ok(())
+        self.vmgr.write(file, bytes)
     }
 
     /// Whether the SD card can be safely removed right now
@@ -80,44 +88,47 @@ impl SdManager {
     }
 
     /// Get the number of bytes free on the SD card
-    pub fn get_free_space_bytes(&mut self) -> u64 {
-        let total_space = self.get_partition_size();
-        let used_space: u64 = self.get_volume_used_space();
+    pub fn get_free_space_bytes(&mut self) -> Option<u64> {
+        let volume_info = self.try_open_volume().ok()?;
+        let total_space = Self::get_volume_size(volume_info.volume_id, &mut self.vmgr);
+        let used_space: u64 = Self::get_volume_used_space(volume_info.root_dir, &mut self.vmgr);
 
-        total_space - used_space
+        Some(total_space - used_space)
     }
 
-    fn get_partition_size(&mut self) -> u64 {
+    fn get_volume_size(volume_id: usize, vmgr: &mut VolumeManager<embedded_sdmmc::SdCard<SDCardSPIDriver, Timer>, RtcWrapper>) -> u64 {
         // Read MBR (first 512 bytes on disk)
-        let mbr: [u8; 512] = todo!();
+        let mut block = [Block::new()]; 
+        vmgr.device().read(&mut block, BlockIdx(0), "Reading MBR").unwrap();
+        let mbr: [u8; 512] = block[0].contents;
+
         /// Volume information begins at address 0x1BE in the MBR. 
         const PARTITION_DATA_OFFSET: usize = 0x1BE;
         /// The MBR data for each partition is 16 bytes.
         const PARTITION_DATA_SIZE: usize = 16;
 
-        let our_partition_index: usize = todo!(); // Which partition we have open - 0, 1, 2, 3
-        let our_partition_offset = PARTITION_DATA_OFFSET + PARTITION_DATA_SIZE*our_partition_index; // 0x1BE if index = 0, 0x1CE if index = 1, etc.
-        let our_partition_data: [u8; 16] = mbr[our_partition_offset..our_partition_offset+PARTITION_DATA_SIZE].try_into().unwrap();
+        let our_partition_offset = PARTITION_DATA_OFFSET + PARTITION_DATA_SIZE*volume_id; // 0x1BE if index = 0, 0x1CE if index = 1, etc.
+        let our_partition_data: [u8; 16] = mbr[our_partition_offset..our_partition_offset+PARTITION_DATA_SIZE].try_into().unwrap(); // Infallible
         // Number of sectors in volume is the last 4 bytes of the volume information
-        let our_partition_length_data: [u8; 4] = our_partition_data[12..16].try_into().unwrap();
+        let our_partition_length_data: [u8; 4] = our_partition_data[12..16].try_into().unwrap(); // Infallible
         // Use u32::from_le_bytes() to convert little endian [u8; 4] to u32
         let our_partition_length_sectors = u32::from_le_bytes(our_partition_length_data);
-        let total_space_bytes: u64 = our_partition_length_sectors as u64 * 512; // TODO: Is it always 512 bytes/sector?
+        let total_space_bytes: u64 = our_partition_length_sectors as u64 * Block::LEN as u64;
         total_space_bytes
     } 
 
     /// Calculate used space in volume. Walk the filesystem, get the length of each file. Sum them.
-    fn get_volume_used_space(&mut self) -> u64 {
-        let Some(root_dir) = self.root_dir else { todo!() };
-        self.get_folder_size(root_dir)
+    fn get_volume_used_space(root_dir: RawDirectory, vmgr: &mut VolumeManager<embedded_sdmmc::SdCard<SDCardSPIDriver, Timer>, RtcWrapper>) -> u64 {
+        // If we have the right volume open already, use that
+        Self::get_folder_size(root_dir, vmgr)
     }
 
     /// Recursively get the size of a folder
-    fn get_folder_size(&mut self, raw_dir: RawDirectory) -> u64 {
+    fn get_folder_size(raw_dir: RawDirectory, vmgr: &mut VolumeManager<embedded_sdmmc::SdCard<SDCardSPIDriver, Timer>, RtcWrapper>) -> u64 {
         let mut total: u64 = 0;
         let (mut files, mut folders) = (Vec::new(), Vec::new());
         
-        self.vmgr.iterate_dir(raw_dir, |dir_entry: &DirEntry| {
+        vmgr.iterate_dir(raw_dir, |dir_entry: &DirEntry| {
             if dir_entry.attributes.is_directory() {
                 folders.push(dir_entry.clone());
             }
@@ -125,16 +136,16 @@ impl SdManager {
                 files.push(dir_entry.clone());
             }
         }).unwrap();
-        self.vmgr.close_dir(raw_dir).unwrap();
+        vmgr.close_dir(raw_dir).unwrap();
 
         for file_info in files {
             total += file_info.size as u64;
         }
         for folder_info in folders {
-            let folder = self.vmgr.open_dir(raw_dir, folder_info.name).unwrap(); // TODO: Potentially fallible, we may hit the max number of open folders
+            let folder = vmgr.open_dir(raw_dir, folder_info.name).unwrap(); // TODO: Potentially fallible, we may hit the max number of open folders
             // Recurse
-            total += self.get_folder_size(folder);
-            self.vmgr.close_dir(folder).unwrap();
+            total += Self::get_folder_size(folder, vmgr);
+            vmgr.close_dir(folder).unwrap();
         }
         total
     }
@@ -179,24 +190,14 @@ impl SdManager {
 
     /// Prepare the card for safe removal. The card is safe to remove after this function finishes.
     pub fn prepare_for_removal(&mut self) -> Result<(), embedded_sdmmc::Error<SdCardError>>{
-        self.close_file()?;
-        self.close_root_dir()?;
-        self.close_volume()
-    }
-
-    fn close_file(&mut self) -> Result<(), embedded_sdmmc::Error<SdCardError>>{
-        let Some(file) = self.file.take() else { return Ok(()) };
-        self.vmgr.close_file(file)
-    }
-
-    fn close_root_dir(&mut self) -> Result<(), embedded_sdmmc::Error<SdCardError>> {
-        let Some(root_dir) = self.root_dir.take() else { return Ok(()) };
-        self.vmgr.close_dir(root_dir)
-    }
-
-    fn close_volume(&mut self) -> Result<(), embedded_sdmmc::Error<SdCardError>>{
-        let Some(raw_vol) = self.volume.take() else { return Ok(()) };
-        self.vmgr.close_volume(raw_vol)
+        if let Some(file) = self.file.take() {
+            self.vmgr.close_file(file)?;
+        }
+        if let Some(volume_info) = self.volume_info.take() {
+            self.vmgr.close_dir(volume_info.root_dir)?;
+            self.vmgr.close_volume(volume_info.volume)?;
+        }
+        Ok(())
     }
 
     /// Reset the state of the sd_manager and all subcomponents after an SD card is unexpectedly removed. 
@@ -206,7 +207,7 @@ impl SdManager {
         // Can't close open files or volumes as this requires communication with the SD card. Rebuild internals.
         let (sd_card, rtc_wrapper) = self.vmgr.free();
         sd_card.mark_card_uninit();
-        SdManager{ extra_pins: self.extra_pins, vmgr: VolumeManager::new(sd_card, rtc_wrapper), file: None, root_dir: None, volume: None, card_previously_inserted: self.card_previously_inserted }
+        SdManager{ extra_pins: self.extra_pins, vmgr: VolumeManager::new(sd_card, rtc_wrapper), volume_info: None, file: None, card_previously_inserted: self.card_previously_inserted }
     }
 
     /// Whether we are ready to write data to the SD card 
@@ -221,7 +222,7 @@ impl SdManager {
         }
         SdCardInfo {is_inserted, is_writable: Some(self.is_card_writable()), 
             is_formatted: Some(self.is_card_formatted()), 
-            free_space_bytes: Some(self.get_free_space_bytes())
+            free_space_bytes: self.get_free_space_bytes()
         }
     }
 }
