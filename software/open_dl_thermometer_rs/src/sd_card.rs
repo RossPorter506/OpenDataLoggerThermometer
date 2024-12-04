@@ -3,6 +3,7 @@ use embedded_hal::{digital::{InputPin, OutputPin}, spi::{ErrorType, SpiBus, SpiD
 use embedded_sdmmc::*;
 use rp_pico::{hal::{clocks::PeripheralClock, rtc::RealTimeClock, spi::Enabled, Clock, Spi, Timer}, pac::SPI0};
 use rp_pico::hal::fugit::RateExtU32;
+use unwrap_infallible::UnwrapInfallible;
 
 use crate::{eprintln, pcb_mapping::{SdCardCs, SdCardExtraPins, SdCardMiso, SdCardMosi, SdCardSck}};
 
@@ -30,7 +31,7 @@ impl SdManager {
         let new_card = embedded_sdmmc::SdCard::new(spi_driver, delay);
 
         Self {
-            card_previously_inserted: extra_pins.card_detect.is_low().unwrap(),
+            card_previously_inserted: extra_pins.card_detect.is_low().unwrap_infallible(),
             extra_pins,
             vmgr: VolumeManager::new(new_card, rtc_wrapper),
             volume_info: None,
@@ -52,7 +53,7 @@ impl SdManager {
         
         for i in 0..MBR_MAX_PARTITIONS {
             let Ok(volume) = self.vmgr.open_raw_volume(VolumeIdx(i)) else { continue };
-            let root_dir = self.vmgr.open_root_dir(volume).unwrap();
+            let root_dir = self.vmgr.open_root_dir(volume).unwrap(); // TODO
             let volume_info = VolumeInfo{root_dir, volume, volume_id: i};
             self.volume_info = Some(volume_info);
             return Ok(volume_info)
@@ -99,7 +100,7 @@ impl SdManager {
     fn get_volume_size(volume_id: usize, vmgr: &mut VolumeManager<embedded_sdmmc::SdCard<SDCardSPIDriver, Timer>, RtcWrapper>) -> u64 {
         // Read MBR (first 512 bytes on disk)
         let mut block = [Block::new()]; 
-        vmgr.device().read(&mut block, BlockIdx(0), "Reading MBR").unwrap();
+        vmgr.device().read(&mut block, BlockIdx(0), "Reading MBR").unwrap(); // TODO
         let mbr: [u8; 512] = block[0].contents;
 
         /// Volume information begins at address 0x1BE in the MBR. 
@@ -108,9 +109,9 @@ impl SdManager {
         const PARTITION_DATA_SIZE: usize = 16;
 
         let our_partition_offset = PARTITION_DATA_OFFSET + PARTITION_DATA_SIZE*volume_id; // 0x1BE if index = 0, 0x1CE if index = 1, etc.
-        let our_partition_data: [u8; 16] = mbr[our_partition_offset..our_partition_offset+PARTITION_DATA_SIZE].try_into().unwrap(); // Infallible
+        let our_partition_data: [u8; 16] = mbr[our_partition_offset..our_partition_offset+PARTITION_DATA_SIZE].try_into().unwrap_or_else(|_| unreachable!());
         // Number of sectors in volume is the last 4 bytes of the volume information
-        let our_partition_length_data: [u8; 4] = our_partition_data[12..16].try_into().unwrap(); // Infallible
+        let our_partition_length_data: [u8; 4] = our_partition_data[12..16].try_into().unwrap_or_else(|_| unreachable!());
         // Use u32::from_le_bytes() to convert little endian [u8; 4] to u32
         let our_partition_length_sectors = u32::from_le_bytes(our_partition_length_data);
         let total_space_bytes: u64 = our_partition_length_sectors as u64 * Block::LEN as u64;
@@ -135,8 +136,8 @@ impl SdManager {
             else {
                 files.push(dir_entry.clone());
             }
-        }).unwrap();
-        vmgr.close_dir(raw_dir).unwrap();
+        }).unwrap(); // TODO
+        vmgr.close_dir(raw_dir).unwrap(); // TODO
 
         for file_info in files {
             total += file_info.size as u64;
@@ -145,7 +146,7 @@ impl SdManager {
             let folder = vmgr.open_dir(raw_dir, folder_info.name).unwrap(); // TODO: Potentially fallible, we may hit the max number of open folders
             // Recurse
             total += Self::get_folder_size(folder, vmgr);
-            vmgr.close_dir(folder).unwrap();
+            vmgr.close_dir(folder).unwrap(); // TODO
         }
         total
     }
@@ -157,7 +158,7 @@ impl SdManager {
         // then reconfigure SPI back to 25MHz
         self.vmgr.device().spi(|driver| {
             driver.spi_bus.set_baudrate(peripheral_clock.freq(), 400.kHz());
-            let _ = driver.spi_bus.write(&[0;10]); 
+            driver.spi_bus.write(&[0;10]).unwrap_infallible(); 
             driver.spi_bus.set_baudrate(peripheral_clock.freq(), 25.MHz())
         });
         // Tell SD card to initialise next time it's used
@@ -252,19 +253,19 @@ impl ErrorType for SDCardSPIDriver{
 }
 impl SpiDevice for SDCardSPIDriver {
     fn transaction(&mut self, operations: &mut [embedded_hal::spi::Operation<'_, u8>]) -> Result<(), Self::Error> {
-        let _ = self.cs.set_low();
+        self.cs.set_low().unwrap_infallible();
         use embedded_hal::spi::Operation::*;
         for op in operations {
-            let _ = match op {
+            match op {
                 Read(buf) =>                self.spi_bus.read(buf),
                 Write(buf) =>               self.spi_bus.write(buf),
                 Transfer(rd_buf, wr_buf) => self.spi_bus.transfer(rd_buf, wr_buf),
                 TransferInPlace(buf) =>     self.spi_bus.transfer_in_place(buf),
                 DelayNs(_) =>               return Err(embedded_hal::spi::ErrorKind::Other), // embedded_sdmmc uses a separate delay object
-            };
+            }.unwrap_infallible();
         }
-        let _ = self.spi_bus.flush();
-        let _ = self.cs.set_high();
+        self.spi_bus.flush().unwrap_infallible();
+        self.cs.set_high().unwrap_infallible();
         Ok(())
     }
 }
@@ -274,7 +275,7 @@ struct RtcWrapper {
 }
 impl TimeSource for RtcWrapper {
     fn get_timestamp(&self) -> embedded_sdmmc::Timestamp {
-        let timestamp = self.rtc.now().unwrap();
+        let timestamp = self.rtc.now().unwrap(); // TODO
         embedded_sdmmc::Timestamp {
             year_since_1970: timestamp.year as u8,
             zero_indexed_month: timestamp.month,

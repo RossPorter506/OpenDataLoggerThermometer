@@ -268,7 +268,7 @@ fn read_sensors(temp_sensors: &mut TempSensors,
 fn start_next_sensor_reading(temp_sensors: &mut TempSensors, sensors_ready_timer: &mut Alarm0) {
     temp_sensors.begin_conversion();
     sensors_ready_timer.clear_interrupt(); // Clear the interrupt flag for the 105ms timer. Should be done in the TIMER0 interrupt, but this is good enough 
-    let _ = sensors_ready_timer.schedule((lmt01::SENSOR_MAX_TIME_FOR_READING_MS+1).millis());
+    sensors_ready_timer.schedule((lmt01::SENSOR_MAX_TIME_FOR_READING_MS+1).millis()).unwrap_or_else(|_| unreachable!());
     READY_TO_START_NEXT_READING.set(false);
 }
 
@@ -511,7 +511,7 @@ fn configure_clocks(watchdog: WATCHDOG, xosc: XOSC, clocks: CLOCKS, pll_sys: PLL
         pll_sys, pll_usb,
         resets, &mut watchdog,
     ).ok()
-     .unwrap();
+     .unwrap(); // TODO
 
     (watchdog, clocks)
 }
@@ -560,7 +560,7 @@ fn configure_usb(usbctrl_regs: USBCTRL_REGS, usbctrl_dpram: USBCTRL_DPRAM, reset
             .manufacturer("Fake company") // TODO
             .product("Serial port") 
             .serial_number("TEST")]) // TODO
-        .unwrap()
+        .unwrap() // TODO
         .device_class(2) // from: https://www.usb.org/defined-class-codes
         .build();
 
@@ -583,7 +583,7 @@ fn configure_display(i2c0: I2C0, display_pins: DisplayPins, card_info: SdCardInf
 
 fn configure_sdcard(spi0: SPI0, rtc: RTC, sdcard_pins: SdCardPins, rtc_clock: RtcClock, delay: Timer, resets: &mut RESETS, peripheral_clock: &PeripheralClock) -> SdManager {
     let spi_bus = configure_spi(spi0, sdcard_pins.spi, resets, peripheral_clock);
-    let rtc = RealTimeClock::new(rtc, rtc_clock, resets, DateTime{ year: 2024, month: 1, day: 1, day_of_week: DayOfWeek::Monday, hour: 1, minute: 1, second: 1 }).unwrap();
+    let rtc = RealTimeClock::new(rtc, rtc_clock, resets, DateTime{ year: 2024, month: 1, day: 1, day_of_week: DayOfWeek::Monday, hour: 1, minute: 1, second: 1 }).unwrap(); // TODO
     SdManager::new(spi_bus, sdcard_pins.cs, delay, sdcard_pins.extra, rtc)
 }
 /// Convenience trait for relaxed atomic reads/writes.

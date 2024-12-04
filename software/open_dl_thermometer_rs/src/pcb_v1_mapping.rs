@@ -1,5 +1,6 @@
 use embedded_hal::digital::OutputPin;
 use arrayvec::ArrayVec;
+use unwrap_infallible::UnwrapInfallible;
 
 use crate::constants::*;
 use crate::gpio;
@@ -57,7 +58,7 @@ impl TempPowerPins {
     pub fn turn_on(&mut self) {
         while let Some(p_in) = self.in_pins.pop() {
             let Ok(mut p_out) = p_in.try_into_function::<gpio::FunctionSioOutput>() else { unreachable!() }; 
-            let _ = p_out.set_high();
+            p_out.set_high().unwrap_infallible();
             self.out_pins.push(p_out);
         }
     }

@@ -79,7 +79,7 @@ macro_rules! create_selectables {
                 core::mem::variant_count::<Self>()
             }
             pub fn next(self) -> Self{
-                FromPrimitive::from_usize((self as usize + 1) % Self::len()).unwrap()
+                FromPrimitive::from_usize((self as usize + 1) % Self::len()).unwrap_or_else(|| unreachable!())
             }
         }
     };
