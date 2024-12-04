@@ -284,9 +284,10 @@ fn right_align(arr: Vec<u8>, total_size: usize) -> Vec<u8> {
 }
 
 fn int_to_vec_u8(n: usize) -> Vec<u8> {
-    let mut v = Vec::new();
-    write!(v.as_mut_slice(), "{n}").unwrap();
-    v
+    const USIZE_MAX_CHARS: usize = (usize::MAX.ilog10()+1) as usize;
+    let mut str = ArrayString::<USIZE_MAX_CHARS>::new();
+    write!(str, "{n}").unwrap_or_else(|_| unreachable!());
+    str.as_bytes().into()
 }
 
 trait ToStr { fn to_str(&self) -> Vec<u8>; }
@@ -302,7 +303,7 @@ impl ToStr for bool {
     fn to_str(&self) -> Vec<u8> {  if *self {b"YES"} else {b"NO "}.into()  }
 }
 
-use usbd_serial::embedded_io::Write;
+use core::fmt::Write;
 extern crate alloc;
 use alloc::vec::Vec;
 /// Replace dynamic placeholders with actual values
