@@ -1,7 +1,7 @@
 #![no_std]
 #![no_main]
 #![feature(variant_count)]
-use core::{cell::RefCell, panic::PanicInfo, sync::atomic::{AtomicBool, AtomicU8, Ordering}};
+use core::{cell::RefCell, panic::PanicInfo, str, sync::atomic::{AtomicBool, AtomicU8, Ordering}};
 extern crate alloc;
 use alloc::string::String;
 
@@ -21,7 +21,7 @@ use rp_pico::{
 };
 use critical_section::Mutex;
 use sd_card::{SdCardInfo, SdManager, SdCardEvent};
-use serial::MAX_SNAPSHOT_LEN;
+use serial::{nonblocking_read, MAX_SNAPSHOT_LEN};
 use static_cell::StaticCell;
 use usb_device::{class_prelude::*, prelude::*};
 use usbd_serial::SerialPort;
@@ -57,10 +57,8 @@ use state_machine::{
 };
 
 /* TODO:
+Test: Basically everything
 Figure out what errors should merely be printed versus those that should panic
-Respond to USB serial ASCII ENQ with ACK
-Display driver: Custom chars
-SD card driver
 Determine when SD card is safe to remove
 Maybe wrap everything up into a nice struct
 Stretch goal: Synchronise time with Pico W and NTP. Maybe not doable - cyw43 doesn't seem to support EAP WAP?
@@ -274,23 +272,46 @@ fn start_next_sensor_reading(temp_sensors: &mut TempSensors, sensors_ready_timer
 
 /// Try to send data over serial.
 fn manage_serial_comms(usb_device: &mut UsbDevice<UsbBus>, serial_buffer: ArrayString::<MAX_SNAPSHOT_LEN>) -> ArrayString::<MAX_SNAPSHOT_LEN>{
-    // We don't care what gets sent to us, but we need to poll anyway to stay USB compliant
-    // Try to send everything we have
-    let ready = critical_section::with(|cs| -> bool {
+    // Has something been sent or received since last time?
+    let new_events = critical_section::with(|cs| -> bool {
         let Some(ref mut serial) = *serial::USB_SERIAL.borrow_ref_mut(cs) else { unreachable!() };
         usb_device.poll(&mut [serial])
     });
-    
-    if !serial_buffer.is_empty() && ready {
-        use serial::UsbSerialPrintError::*;
-        match serial::nonblocking_print(serial_buffer.as_bytes()) {
-            // Remove whatever was successfully sent from our buffer
-            Err(WouldBlock(len)) => return ArrayString::from(&serial_buffer[len..]).unwrap_or_else(|_| unreachable!() ),
-            Err(OtherError(a)) => panic!("{a:?}"),
-            Ok(()) => return serial_buffer,
-        };
+
+    if new_events {
+        // Read the serial buffer, check for ping requests
+        check_for_and_respond_to_pings();
+
+        // Try to send everything we need to send
+        if !serial_buffer.is_empty() {
+            use serial::UsbSerialPrintError::*;
+            match serial::nonblocking_print(serial_buffer.as_bytes()) {
+                // Remove whatever was successfully sent from our buffer
+                Err(WouldBlock(len)) => return ArrayString::from(&serial_buffer[len..]).unwrap_or_else(|_| unreachable!() ),
+                Err(OtherError(a)) => panic!("{a:?}"),
+                Ok(()) => return serial_buffer,
+            };
+        }
     }
+    
     serial_buffer
+}
+
+/// Reads the serial recieve buffer. If we receive an ASCII ENQ character respond with an ASCII ACK.
+fn check_for_and_respond_to_pings() {
+    let mut buf = [0u8; 8];
+    const ASCII_ENQ_CHAR: u8 = b'\x05';
+    const ASCII_ACK_STR: &str = "\x06";
+    use serial::UsbSerialReadError::*;
+    match nonblocking_read(buf.as_mut_slice()) {
+        Err(WouldBlock) => (), // Recieve buffer empty
+        Ok(len) => {
+            let enq_count = buf.iter().take(len).filter(|&&c| c == ASCII_ENQ_CHAR).count();
+            let response = str::repeat(ASCII_ACK_STR, enq_count);
+            println!("{response}"); // This is technically a blocking write, but...
+        },
+        Err(OtherError(e)) => panic!("{e:?}"),
+    }
 }
 
 /// Update system configuration according to button presses.

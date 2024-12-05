@@ -141,9 +141,32 @@ pub fn nonblocking_print<'a>(str: impl Into<&'a [u8]>) -> Result<(), UsbSerialPr
     })
 }
 
+pub fn nonblocking_read<'a>(buf: impl Into<&'a mut [u8]>) -> Result<usize, UsbSerialReadError>{
+    use UsbSerialReadError::*;
+
+    critical_section::with(|cs| {
+        let Some(ref mut serial) = *USB_SERIAL.borrow_ref_mut(cs) else { panic!() }; // Only reachable if this fn is called before USB is configured
+
+        match serial.read(buf.into()) {
+            Ok(0)                       => Err(WouldBlock),
+            Ok(len)                     => Ok(len), 
+            // Err(WouldBlock) implies buffer is full.
+            Err(UsbError::WouldBlock)   => Err(WouldBlock),
+            Err(a)                      => Err(OtherError(a)),
+        }
+    })
+}
+
+#[derive(Debug)]
 pub enum UsbSerialPrintError {
     /// Partial or no send. Contains how many bytes were sent.
     WouldBlock(usize),
+    OtherError(UsbError),
+}
+#[derive(Debug)]
+pub enum UsbSerialReadError {
+    /// Partial or no send. Contains how many bytes were sent.
+    WouldBlock,
     OtherError(UsbError),
 }
 
