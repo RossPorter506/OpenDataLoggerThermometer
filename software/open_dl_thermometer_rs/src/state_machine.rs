@@ -2,7 +2,7 @@
 
 /// Encode both the state and what things on the screen can be selected into one item
 /// This ensures that there can't be any mismatches between states and selected items
-#[derive(Copy, Clone, PartialEq)]
+#[derive(Copy, Clone, PartialEq, Debug)]
 pub enum State {
     /// Main menu
     Mainmenu(MainmenuSelectables),
@@ -68,7 +68,7 @@ use num_traits::FromPrimitive;
 // Macro to generate selectables in a state
 macro_rules! create_selectables {
     ($name:ident, [$first_variant:ident, $($variant:ident),*]) => {
-        #[derive(Default, FromPrimitive, Copy, Clone, PartialEq)]
+        #[derive(Default, FromPrimitive, Copy, Clone, PartialEq, Debug)]
         pub enum $name {
             #[default]
             $first_variant = 0,
@@ -84,7 +84,7 @@ macro_rules! create_selectables {
         }
     };
     ($name:ident, []) => {
-        #[derive(Default, Copy, Clone, PartialEq)]
+        #[derive(Default, Copy, Clone, PartialEq, Debug)]
         pub enum $name {
             #[default]
             None

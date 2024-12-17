@@ -57,6 +57,7 @@ use state_machine::{
 };
 
 /* TODO:
+Use serial printing only if configured for use, else RTT 
 Test: Basically everything
 Figure out what errors should merely be printed versus those that should panic
 Determine when SD card is safe to remove
@@ -120,7 +121,7 @@ fn main() -> ! {
     // Autodetect any connected sensors
     config.enabled_channels = temp_sensors.autodetect_sensor_channels(&mut system_timer);
 
-    iprintln!("Initialisation complete.");
+    rprintln!("Initialisation complete.");
     
     loop {
         // Whether we are going to update state and redraw screen
@@ -201,12 +202,12 @@ fn monitor_sdcard_state(mut sd_manager: SdManager, config: &mut Config, update_a
     }
 
     // Beginning to datalog
-    if config.status == SamplingAndDatalogging && !sd_manager.ready_to_write() {
+    if config.status == SamplingAndDatalogging && config.sd.selected_for_use && !sd_manager.ready_to_write() {
         let filename = alloc::format!("{}.{}", String::from_utf8_lossy(&config.sd.filename), config.sd.filetype.as_str());
         sd_status = sd_manager.try_open_file(&filename); // TODO: Ensure this function makes ready_to_write() return true.
     }
     // Just stopped datalogging
-    else if config.status != SamplingAndDatalogging && !sd_manager.is_safe_to_remove() {
+    else if config.status != SamplingAndDatalogging && config.sd.selected_for_use && !sd_manager.is_safe_to_remove() {
         // We don't need to write to the card if we're not datalogging, so make it safe to remove just in case the user removes it.
         sd_status = sd_manager.prepare_for_removal(); // TODO: Ensure this function the ready_to_remove() return true.
     }
