@@ -127,9 +127,9 @@ const CONFIG_SD_FILENAME_SCREEN: Screen = [
 
 const CONFIG_CHANNEL_SELECT_SCREEN: Screen = [
     *b"Record Channels:    ",
-    *b"1: @@@ 2: @@@ 3: @@@",
-    *b"4: @@@ 5: @@@ 6: @@@",
-    *b"7: @@@ 8: @@@  %NEXT"];
+    *b"1:%@@@ 2:%@@@ 3:%@@@",
+    *b"4:%@@@ 5:%@@@ 6:%@@@",
+    *b"7:%@@@ 8:%@@@  %NEXT"];
 
 const CONFIG_SAMPLE_RATE_SCREEN: Screen = [
     *b"%Sample Rate:@@@/sec",
