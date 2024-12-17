@@ -133,7 +133,7 @@ const CONFIG_CHANNEL_SELECT_SCREEN: Screen = [
 
 const CONFIG_SAMPLE_RATE_SCREEN: Screen = [
     *b"%Sample Rate:@@@/sec",
-    *b"             @@@kB/h",
+    *b"            @@@@kB/h",
     *b"                    ",
     *b"               %NEXT"];
 
@@ -348,7 +348,8 @@ fn substitute_dynamic_elements(screen: &mut Screen, config: &Config, sdcard_info
             dynamic_strs.push( right_align(int_to_vec_u8(config.samples_per_sec as usize), 3) );
             // Samples per sec * bytes per sample * seconds per hour * number of active channels * kB per B = kB/hr
             let kb_per_hr = config.samples_per_sec as usize * CHARS_PER_READING * 3600 * config.enabled_channels.iter().filter(|&&x| x).count() / 1000 ;
-            dynamic_strs.push( right_align(int_to_vec_u8(kb_per_hr), 3) );
+            const MAX_KB_PER_HOUR_CHARS: usize = 4;
+            dynamic_strs.push( right_align(int_to_vec_u8(kb_per_hr), MAX_KB_PER_HOUR_CHARS) );
         },
         ViewTemperatures(_) | DatalogTemperatures(_) => {
             /// How many characters we have to display a reading
