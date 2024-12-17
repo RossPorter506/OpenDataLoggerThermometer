@@ -2,7 +2,6 @@ use crate::constants;
 use crate::state_machine::State;
 
 /// Contains information about current system configuration
-#[derive(Default)]
 pub struct Config {
     pub status: Status,
     pub curr_state: State,
@@ -15,7 +14,12 @@ pub struct Config {
 }
 impl Config {
     pub fn new() -> Config {
-        Config::default()
+        Self { status: Default::default(), 
+            curr_state: Default::default(), 
+            enabled_channels: Default::default(), 
+            samples_per_sec: 1, 
+            sd: Default::default(), 
+            serial: Default::default() }
     }
 }
 #[derive(Default, PartialEq)]
