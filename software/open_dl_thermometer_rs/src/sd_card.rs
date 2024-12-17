@@ -7,6 +7,8 @@ use unwrap_infallible::UnwrapInfallible;
 
 use crate::{eprintln, pcb_mapping::{SdCardCs, SdCardExtraPins, SdCardMiso, SdCardMosi, SdCardSck}};
 
+pub const SDCARD_INITIAL_FREQ_KHZ: u32 = 400;
+pub const SDCARD_FULL_SPEED_FREQ_KHZ: u32 = 25_000;
 #[derive(Copy, Clone)]
 struct VolumeInfo {
     root_dir: RawDirectory,
@@ -157,9 +159,9 @@ impl SdManager {
         // send at least 74 clock pulses (without chip select) to wake up card,
         // then reconfigure SPI back to 25MHz
         self.vmgr.device().spi(|driver| {
-            driver.spi_bus.set_baudrate(peripheral_clock.freq(), 400.kHz());
+            driver.spi_bus.set_baudrate(peripheral_clock.freq(), SDCARD_INITIAL_FREQ_KHZ.kHz());
             driver.spi_bus.write(&[0;10]).unwrap_infallible(); 
-            driver.spi_bus.set_baudrate(peripheral_clock.freq(), 25.MHz())
+            driver.spi_bus.set_baudrate(peripheral_clock.freq(), SDCARD_FULL_SPEED_FREQ_KHZ.kHz())
         });
         // Tell SD card to initialise next time it's used
         self.vmgr.device().mark_card_uninit();

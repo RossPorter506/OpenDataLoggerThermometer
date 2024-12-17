@@ -523,11 +523,12 @@ fn configure_spi(spi0: SPI0, sdcard_pins: SdCardSPIPins, resets: &mut RESETS, pe
     let sdcard_spi = Spi::<_,_,_,BITS_PER_SPI_PACKET>::new(spi0, (sdcard_pins.mosi, sdcard_pins.miso, sdcard_pins.sck));
     
     // Start at 400kHz before negotiation, then 25MHz after.
-    sdcard_spi.init(resets, peripheral_clock.freq(), 400.kHz(), spi::FrameFormat::MotorolaSpi(embedded_hal::spi::MODE_0))
+    sdcard_spi.init(resets, peripheral_clock.freq(), sd_card::SDCARD_INITIAL_FREQ_KHZ.kHz(), spi::FrameFormat::MotorolaSpi(embedded_hal::spi::MODE_0))
 }
 
 fn configure_i2c(i2c0: I2C0, display_pins: DisplayPins, resets: &mut RESETS, system_clock: &SystemClock,) -> liquid_crystal::I2C<rp_pico::hal::I2C<I2C0, (DisplaySda, DisplayScl)>> {
-    let display_i2c = I2C::i2c0(i2c0, display_pins.sda, display_pins.scl, 100.kHz(), resets, system_clock.freq());
+    const I2C_FREQ_KHZ: u32 = 1000; // Depending on your display you may have to set this lower, to 400 or 100kHz.
+    let display_i2c = I2C::i2c0(i2c0, display_pins.sda, display_pins.scl, I2C_FREQ_KHZ.kHz(), resets, system_clock.freq());
 
     liquid_crystal::I2C::new(display_i2c, display::DISPLAY_I2C_ADDRESS)
 }
