@@ -130,10 +130,12 @@ fn main() -> ! {
         if SENSOR_READINGS_AVAILABLE.get() {
             read_sensors(&mut temp_sensors, &mut buffers, &config, &mut sample_rate_timer, &mut write_to_sd, &mut system_timer);
             update_available = Some(UpdateReason::NewSensorValues);
+            SENSOR_READINGS_AVAILABLE.set(false);
         }
         
         if READY_TO_START_NEXT_READING.get() {
             start_next_sensor_reading(&mut temp_sensors, &mut sensors_ready_timer);
+            READY_TO_START_NEXT_READING.set(false);
         }
 
         // Check for button presses. This does override the `update_available` value from the above sensor readings, but
@@ -143,6 +145,7 @@ fn main() -> ! {
             ButtonState::SelectButton => Some(UpdateReason::SelectButton),
             _ => update_available, // no change
         };
+        BUTTON_STATE.set(ButtonState::None);
 
         // Check if the card is inserted or removed
         sd_manager = monitor_sdcard_state(sd_manager, &mut config, &mut update_available, &clocks.peripheral_clock);
@@ -423,8 +426,10 @@ fn IO_IRQ_BANK0() {
         if let Some(ref mut buttons) = *BUTTON_PINS.borrow_ref_mut(cs) {
             if buttons.select.interrupt_status(gpio::Interrupt::EdgeLow) {
                 BUTTON_STATE.set(ButtonState::SelectButton);
+                buttons.select.clear_interrupt(gpio::Interrupt::EdgeLow);
             } else if buttons.next.interrupt_status(gpio::Interrupt::EdgeLow) {
                 BUTTON_STATE.set(ButtonState::NextButton);
+                buttons.next.clear_interrupt(gpio::Interrupt::EdgeLow);
             }
         }
     });
@@ -492,12 +497,14 @@ fn collect_pins(sio: SIO, io_bank0: IO_BANK0, pads_bank0: PADS_BANK0, resets: &m
 }
 
 /// Set up button pins for interrupt usage. Button pins are passed to interrupt
-fn configure_button_pins(select: pcb_mapping::SelectButton, next: pcb_mapping::NextButton) {
+fn configure_button_pins(mut select: pcb_mapping::SelectButton, mut next: pcb_mapping::NextButton) {
     next.set_schmitt_enabled(true);
-    next.set_interrupt_enabled(rp_pico::hal::gpio::Interrupt::EdgeLow, true);
+    next.set_interrupt_enabled(gpio::Interrupt::EdgeLow, true);
+    next.clear_interrupt(gpio::Interrupt::EdgeLow);
 
     select.set_schmitt_enabled(true);
-    select.set_interrupt_enabled(rp_pico::hal::gpio::Interrupt::EdgeLow, true);
+    select.set_interrupt_enabled(gpio::Interrupt::EdgeLow, true);
+    select.clear_interrupt(gpio::Interrupt::EdgeLow);
 
     // Move pins into global variable so interrupt can access them
     critical_section::with(|cs| {
