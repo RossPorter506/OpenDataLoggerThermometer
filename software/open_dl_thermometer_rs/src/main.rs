@@ -12,7 +12,7 @@ use rp_pico::{
     hal::{
         clocks::{ClocksManager, PeripheralClock, RtcClock, SystemClock, UsbClock}, Clock, Watchdog,
         fugit::{ExtU32, RateExtU32}, gpio, 
-        pwm::{self, FreeRunning, Pwm0, Slice}, 
+        pwm::{FreeRunning, Pwm0, Slice}, 
         rtc::{DateTime, DayOfWeek, RealTimeClock}, spi, Spi,
         timer::{Alarm, Alarm0}, Timer,
         usb::UsbBus, Sio, I2C
@@ -96,7 +96,7 @@ fn main() -> ! {
     let (_watchdog, clocks) = configure_clocks(registers.WATCHDOG, registers.XOSC, registers.CLOCKS, registers.PLL_SYS, registers.PLL_USB, &mut registers.RESETS);
 
     // Timers
-    let (mut system_timer, mut sample_rate_timer, mut sensors_ready_timer) = configure_timers(registers.PWM, registers.TIMER, &mut registers.RESETS, &clocks);
+    let mut system_timer = configure_timers(registers.PWM, registers.TIMER, &mut registers.RESETS, &clocks);
 
     // USB - Also enables USB serial printing
     let mut usb_device = configure_usb(registers.USBCTRL_REGS, registers.USBCTRL_DPRAM, &mut registers.RESETS, clocks.usb_clock);
@@ -129,13 +129,13 @@ fn main() -> ! {
 
         // Monitor sensors
         if SENSOR_READINGS_AVAILABLE.get() {
-            read_sensors(&mut temp_sensors, &mut buffers, &config, &mut sample_rate_timer, &mut write_to_sd, &mut system_timer);
+            read_sensors(&mut temp_sensors, &mut buffers, &config, &mut write_to_sd, &mut system_timer);
             update_available = Some(UpdateReason::NewSensorValues);
             SENSOR_READINGS_AVAILABLE.set(false);
         }
         
         if READY_TO_START_NEXT_READING.get() {
-            start_next_sensor_reading(&mut temp_sensors, &mut sensors_ready_timer);
+            start_next_sensor_reading(&mut temp_sensors);
             READY_TO_START_NEXT_READING.set(false);
         }
 
@@ -174,7 +174,11 @@ fn main() -> ! {
             state_machine::next_state(&mut config, &mut sd_manager, &update_reason);
             state_machine::state_outputs(&mut config);
             display_manager.determine_new_screen(&config, sd_manager.get_card_info(), buffers.display);
-            if config.status == Idle { sample_rate_timer.disable(); } else { sample_rate_timer.enable(); }
+            critical_section::with(|cs| {
+                let Some(ref mut timer) = *SAMPLE_RATE_TIMER.borrow_ref_mut(cs) else { unreachable!() };
+                if config.status == Idle { timer.disable(); } 
+                else { timer.enable(); }
+            });
         }
 
         // Screen updates
@@ -246,13 +250,13 @@ impl Buffers {
 /// Read values from the LMT01 sensors and update buffers
 fn read_sensors(temp_sensors: &mut TempSensors, 
         buffers: &mut Buffers,  
-        config: &Config, sample_rate_timer: &mut Slice<Pwm0, FreeRunning>,
+        config: &Config, 
         write_to_sd: &mut bool,
         system_timer: &mut Timer) {
 
     buffers.display = temp_sensors.read_temperatures_and_end_conversion().map(lmt01::temp_to_string);
     
-    // Technically this timestamp value should probably be from when the conversion *started*, not when it ended, but only 0.1sec difference
+    // TODO: Technically this timestamp value should probably be from when the conversion *started*, not when it ended, but only 0.1sec difference
     let serialised_snapshot = serial::serialise_snapshot(system_timer.get_counter(), &buffers.display);
     
     if config.sd.selected_for_use {
@@ -268,14 +272,15 @@ fn read_sensors(temp_sensors: &mut TempSensors,
     }
 
     SENSOR_READINGS_AVAILABLE.set(false);
-    sample_rate_timer.clear_interrupt(); // Clear the interrupt flag for the 125ms timer. Should be done in the PWM interrupt, but this is good enough 
 }
 
 /// If it's time to get another reading then restart the LMT01 sensors.
-fn start_next_sensor_reading(temp_sensors: &mut TempSensors, sensors_ready_timer: &mut Alarm0) {
+fn start_next_sensor_reading(temp_sensors: &mut TempSensors) {
     temp_sensors.begin_conversion();
-    sensors_ready_timer.clear_interrupt(); // Clear the interrupt flag for the 105ms timer. Should be done in the TIMER0 interrupt, but this is good enough 
-    sensors_ready_timer.schedule((lmt01::SENSOR_MAX_TIME_FOR_READING_MS+1).millis()).unwrap_or_else(|_| unreachable!());
+    critical_section::with(|cs| {
+        let Some(ref mut timer) = *SENSORS_READY_TIMER.borrow_ref_mut(cs) else { unreachable!() };
+        timer.schedule((lmt01::SENSOR_MAX_TIME_FOR_READING_MS+1).millis()).unwrap_or_else(|_| unreachable!());
+    });
     READY_TO_START_NEXT_READING.set(false);
 }
 
@@ -394,14 +399,26 @@ fn cycle_sample_rate(rate: &mut u8) {
 
 /// Whether it's time to read the sensors for new values
 static SENSOR_READINGS_AVAILABLE: AtomicBool = AtomicBool::new(false);
+
+/// Timer used to tell when sensor readings are ready to be read.
+static SENSORS_READY_TIMER: Mutex<RefCell< Option<Alarm0> >> = Mutex::new(RefCell::new(None)); 
+
 // Set flag indicating we should check sensor values
 // Interrupt fires 105ms after sensors are reset, values should be ready now.
 #[interrupt]
 fn TIMER_IRQ_0() {
     SENSOR_READINGS_AVAILABLE.set(true);
+    critical_section::with(|cs| {
+        let Some(ref mut timer) = *SENSORS_READY_TIMER.borrow_ref_mut(cs) else {unreachable!()};
+        timer.clear_interrupt();
+    });
 }
+
 /// The default sample frequency of the system on startup, in Hz.
 const DEFAULT_SAMPLE_FREQ_HZ: u8 = 1;
+
+/// Timer used to count out multiples of 125ms periods, used to determine when new readings should be taken.
+static SAMPLE_RATE_TIMER: Mutex<RefCell< Option<Slice<Pwm0, FreeRunning>> >> = Mutex::new(RefCell::new(None)); 
 
 /// How many times the 8Hz PWM interrupt must trigger per sample of the sensors, e.g.
 /// 
@@ -420,6 +437,11 @@ fn PWM_IRQ_WRAP() {
         NUM_WRAPS.set(1);
     }
     else { NUM_WRAPS.set(NUM_WRAPS.get()+1); }
+
+    critical_section::with(|cs| {
+        let Some(ref mut timer) = *SAMPLE_RATE_TIMER.borrow_ref_mut(cs) else { unreachable!() };
+        timer.clear_interrupt();
+    });
 }
 
 /// Whether any buttons have been pressed
@@ -431,14 +453,13 @@ static BUTTON_PINS: Mutex<RefCell<Option<pcb_mapping::ButtonPins>>> = Mutex::new
 #[interrupt]
 fn IO_IRQ_BANK0() {
     critical_section::with(|cs| {
-        if let Some(ref mut buttons) = *BUTTON_PINS.borrow_ref_mut(cs) {
+        let Some(ref mut buttons) = *BUTTON_PINS.borrow_ref_mut(cs) else { unreachable!() };
             if buttons.select.interrupt_status(gpio::Interrupt::EdgeLow) {
                 BUTTON_STATE.set(ButtonState::SelectButton);
                 buttons.select.clear_interrupt(gpio::Interrupt::EdgeLow);
             } else if buttons.next.interrupt_status(gpio::Interrupt::EdgeLow) {
                 BUTTON_STATE.set(ButtonState::NextButton);
                 buttons.next.clear_interrupt(gpio::Interrupt::EdgeLow);
-            }
         }
     });
 }
@@ -517,13 +538,11 @@ fn configure_button_pins(mut select: pcb_mapping::SelectButton, mut next: pcb_ma
     // Move pins into global variable so interrupt can access them
     critical_section::with(|cs| {
         BUTTON_PINS
-            .borrow(cs)
-            .replace(Some(ButtonPins { select, next }));
+            .borrow_ref_mut(cs)
+            .replace(ButtonPins { select, next });
     });
     // Enable interrupt
-    unsafe {
-        pac::NVIC::unmask(pac::Interrupt::IO_IRQ_BANK0);
-    }
+    unsafe { pac::NVIC::unmask(pac::Interrupt::IO_IRQ_BANK0); }
 }
 
 const BITS_PER_SPI_PACKET: u8 = 8;
@@ -553,26 +572,37 @@ fn configure_clocks(watchdog: WATCHDOG, xosc: XOSC, clocks: CLOCKS, pll_sys: PLL
     (watchdog, clocks)
 }
 
-fn configure_timers(pwm: PWM, timer: TIMER, resets: &mut RESETS, clocks: &ClocksManager) -> (Timer, pwm::Slice<pwm::Pwm0, FreeRunning>, Alarm0) {
+fn configure_timers(pwm: PWM, timer: TIMER, resets: &mut RESETS, clocks: &ClocksManager) -> Timer {
     // PWM used as timer. Used to control how often we ask the LMT01's to produce a value for us
     let slices = rp_pico::hal::pwm::Slices::new(pwm, resets);
     let mut sample_rate_timer = slices.pwm0.into_mode::<FreeRunning>();
 
-    core::assert!(clocks.system_clock.freq().to_MHz() < 128); // Assume freq < 128MHz because prescaler is 8-bit and we multiply clock by 2
+    core::assert!(clocks.system_clock.freq().to_MHz() == 125); // Assume freq < 128MHz because prescaler is 8-bit and we multiply clock by 2
 
+    sample_rate_timer.disable();
     sample_rate_timer.default_config();
-    sample_rate_timer.set_div_int( (clocks.system_clock.freq().to_MHz() * 2) as u8 ); // 2us resolution => max ~130ms range
-    sample_rate_timer.set_top(62_500); // Want 125ms range
+    sample_rate_timer.set_div_int( (clocks.system_clock.freq().to_MHz() * 2) as u8 ); // 125 MHz / 250 => 2us resolution => max ~130ms range
+    sample_rate_timer.set_top(62_500 - 1); // Want 125ms range
+    sample_rate_timer.clear_interrupt();
     sample_rate_timer.enable_interrupt();
+    critical_section::with(|cs| {
+        SAMPLE_RATE_TIMER.borrow_ref_mut(cs).replace(sample_rate_timer);
+    });
+    unsafe { pac::NVIC::unmask(pac::Interrupt::PWM_IRQ_WRAP); }
 
     // System timer, general use (delays, etc.)
     let mut system_timer = rp_pico::hal::Timer::new(timer, resets, clocks);
 
     // We use alarm 0 used to tell us when we can retrieve a value from the LMT01's. 
     let Some(mut sensors_ready_timer) = system_timer.alarm_0() else { unreachable!() };
+    sensors_ready_timer.clear_interrupt();
     sensors_ready_timer.enable_interrupt();
+    critical_section::with(|cs| {
+        SENSORS_READY_TIMER.borrow_ref_mut(cs).replace(sensors_ready_timer);
+    });
+    unsafe { pac::NVIC::unmask(pac::Interrupt::TIMER_IRQ_0); }
 
-    (system_timer, sample_rate_timer, sensors_ready_timer)
+    system_timer
 }
 
 fn configure_usb(usbctrl_regs: USBCTRL_REGS, usbctrl_dpram: USBCTRL_DPRAM, resets: &mut RESETS, usb_clock: UsbClock) -> UsbDevice<'static, UsbBus> {
