@@ -624,10 +624,10 @@ fn configure_usb(usbctrl_regs: USBCTRL_REGS, usbctrl_dpram: USBCTRL_DPRAM, reset
     // Create a USB device with a fake VID and PID
     let usb_dev = UsbDeviceBuilder::new(usb_bus_ref, UsbVidPid(0x16c0, 0x27dd))
         .strings(&[StringDescriptors::default()
-            .manufacturer("Fake company") // TODO
-            .product("Serial port") 
-            .serial_number("TEST")]) // TODO
-        .unwrap() // TODO
+            .manufacturer("Ross Porter")
+            .product("OpenDatalogger Thermometer") 
+            .serial_number("69420")])
+        .unwrap_or_else(|_| unreachable!())
         .device_class(2) // from: https://www.usb.org/defined-class-codes
         .build();
 
