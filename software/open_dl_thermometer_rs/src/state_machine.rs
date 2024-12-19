@@ -234,6 +234,7 @@ pub enum UpdateReason {
     NewSensorValues,
     SDSafeToRemove,
     SDFull,
+    SDStateChange,
     SDRemovedUnexpectedly,
     SDError(embedded_sdmmc::Error<SdCardError>),
 }

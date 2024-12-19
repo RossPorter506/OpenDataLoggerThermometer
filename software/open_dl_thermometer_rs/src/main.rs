@@ -188,6 +188,7 @@ fn monitor_sdcard_state(mut sd_manager: SdManager, config: &mut Config, update_a
 
     match sd_manager.get_physical_card_events() {
         SdCardEvent::WasJustInserted => {
+            *update_available = Some(UpdateReason::SDStateChange);
             sd_manager.initialise_card(peripheral_clock);
         },
         SdCardEvent::WasJustRemoved => {
@@ -196,6 +197,9 @@ fn monitor_sdcard_state(mut sd_manager: SdManager, config: &mut Config, update_a
                 // Move to SD card error screen
                 *update_available = Some(UpdateReason::SDRemovedUnexpectedly);
                 sd_manager = sd_manager.reset_after_unexpected_removal();
+            }
+            else {
+                *update_available = Some(UpdateReason::SDStateChange);
             }
         },
         SdCardEvent::NoChange => (),
