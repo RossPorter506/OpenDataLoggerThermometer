@@ -131,15 +131,17 @@ impl SdManager {
         let mut total: u64 = 0;
         let (mut files, mut folders) = (Vec::new(), Vec::new());
         
+        const THIS_DIR: ShortFileName = ShortFileName::this_dir();
+        const PARENT_DIR: ShortFileName = ShortFileName::parent_dir();
         vmgr.iterate_dir(raw_dir, |dir_entry: &DirEntry| {
-            if dir_entry.attributes.is_directory() {
+            if matches!(dir_entry.name, THIS_DIR | PARENT_DIR) {}
+            else if dir_entry.attributes.is_directory() {
                 folders.push(dir_entry.clone());
             }
             else {
                 files.push(dir_entry.clone());
             }
         }).unwrap(); // TODO
-        vmgr.close_dir(raw_dir).unwrap(); // TODO
 
         for file_info in files {
             total += file_info.size as u64;
