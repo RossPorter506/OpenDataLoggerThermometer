@@ -396,11 +396,13 @@ static SENSOR_READINGS_AVAILABLE: AtomicBool = AtomicBool::new(false);
 fn TIMER_IRQ_0() {
     SENSOR_READINGS_AVAILABLE.set(true);
 }
+/// The default sample frequency of the system on startup, in Hz.
+const DEFAULT_SAMPLE_FREQ_HZ: u8 = 1;
 
 /// How many times the 8Hz PWM interrupt must trigger per sample of the sensors, e.g.
 /// 
 /// `WRAPS_PER_SAMPLE = 8/n` where `n` is the sampling frequency
-static WRAPS_PER_SAMPLE: AtomicU8 = AtomicU8::new(1);
+static WRAPS_PER_SAMPLE: AtomicU8 = AtomicU8::new(8/DEFAULT_SAMPLE_FREQ_HZ);
 
 /// Whether it's time to reset the sensors to generate new values
 static READY_TO_START_NEXT_READING: AtomicBool = AtomicBool::new(false);

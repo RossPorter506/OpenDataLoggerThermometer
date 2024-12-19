@@ -17,7 +17,7 @@ impl Config {
         Self { status: Default::default(), 
             curr_state: Default::default(), 
             enabled_channels: Default::default(), 
-            samples_per_sec: 1, 
+            samples_per_sec: crate::DEFAULT_SAMPLE_FREQ_HZ, 
             sd: Default::default(), 
             serial: Default::default() }
     }
