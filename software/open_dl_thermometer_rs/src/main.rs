@@ -57,12 +57,12 @@ use state_machine::{
 };
 
 /* TODO:
+Determine sensible limits for open files/folders
 Use serial printing only if configured for use, else RTT 
-Test: Basically everything
+Test: Sensors, writing to SD card, serial
 Figure out what errors should merely be printed versus those that should panic
-Determine when SD card is safe to remove
 Maybe wrap everything up into a nice struct
-Stretch goal: Synchronise time with Pico W and NTP. Maybe not doable - cyw43 doesn't seem to support EAP WAP?
+Stretch goal: Synchronise time with Pico W via NTP. Maybe not usable for us - cyw43 doesn't seem to support EAP WAP?
 */
 
 // Heap so we can use Vec, etc.. Try to use ArrayVec where possible though.
@@ -159,7 +159,7 @@ fn main() -> ! {
                     write_to_sd = false;
                 },
                 Err(e) => {
-                    eprintln!("{e:?}");
+                    rprintln!("{:?}", e);
                     update_available = Some(UpdateReason::SDError(e));
                 },
             };
@@ -222,7 +222,7 @@ fn monitor_sdcard_state(mut sd_manager: SdManager, config: &mut Config, update_a
     }
 
     if let Err(e) = sd_status {
-        eprintln!("{e:?}");
+        rprintln!("{:?}", e);
         *update_available = Some(UpdateReason::SDError(e));
         config.sd.selected_for_use = false;
     }
