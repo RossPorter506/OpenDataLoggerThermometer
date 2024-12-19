@@ -313,8 +313,8 @@ fn substitute_dynamic_elements(screen: &mut Screen, config: &Config, sdcard_info
     let mut dynamic_strs = ArrayVec::<Vec<u8>, MAX_DYNAMIC_ELEMENTS>::new();
     match config.curr_state {
         ConfigOutputs(_) => {
-            dynamic_strs.push(config.serial.selected_for_use.to_str());
             dynamic_strs.push(config.sd.selected_for_use.to_str());
+            dynamic_strs.push(config.serial.selected_for_use.to_str());
         },
         ConfigSDStatus(_) => {
             dynamic_strs.push(sdcard_info.is_inserted.to_str());   // SD detected

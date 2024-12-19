@@ -100,7 +100,7 @@ macro_rules! create_selectables {
 // What can be selected on each screen
 create_selectables!(MainmenuSelectables, [Configure, View, Datalog]);
 
-create_selectables!(ConfigOutputsSelectables, [Serial, SDCard, Next]);
+create_selectables!(ConfigOutputsSelectables, [SDCard, Serial, Next]);
 create_selectables!(ConfigSDStatusSelectables, [Next,]);
 create_selectables!(ConfigSDFilenameSelectables, [
         FilenameChar0, FilenameChar1, FilenameChar2, FilenameChar3,
@@ -116,7 +116,7 @@ create_selectables!(ConfigSampleRateSelectables, [SampleRate, Next]);
 create_selectables!(ViewTemperaturesSelectables, []);
 
 create_selectables!(DatalogTemperaturesSelectables, []);
-create_selectables!(DatalogConfirmStopSelectables, [ConfirmStop, CancelStop]);
+create_selectables!(DatalogConfirmStopSelectables, [CancelStop, ConfirmStop]);
 create_selectables!(
     DatalogErrorSDFullSelectables,
     [ContinueWithoutSD, StopDatalogging]
