@@ -14,13 +14,14 @@ type I2CInterface = liquid_crystal::I2C<rp_pico::hal::I2C<rp_pico::pac::I2C0, (D
 pub struct IncrementalDisplayWriter<'a> {
     screen: Screen,
     next_pos: Option<(usize, usize)>,
+    cursor_pos: Option<(usize, usize)>,
     driver: liquid_crystal::LiquidCrystal<'a, I2CInterface, {SCREEN_COLS as u8}, SCREEN_ROWS>,
 }
 impl<'a> IncrementalDisplayWriter<'a> {
     pub fn new(config: &Config, sdcard_info: SdCardInfo, delay: &mut impl liquid_crystal::DelayNs, liquid_crystal_i2c_interface: &'a mut I2CInterface) -> Self {
         let mut driver = liquid_crystal::LiquidCrystal::new(liquid_crystal_i2c_interface, Bus4Bits, LCD20X4);
         driver.begin(delay);
-        Self {screen: determine_screen(config, sdcard_info, [None;NUM_SENSOR_CHANNELS]).0, next_pos: Some((0,0)), driver}
+        Self {screen: determine_screen(config, sdcard_info, [None;NUM_SENSOR_CHANNELS]).0, next_pos: Some((0,0)), driver, cursor_pos: None}
     }
     /// If the display isn't up to date then send one character to the display.
     /// 
@@ -29,6 +30,7 @@ impl<'a> IncrementalDisplayWriter<'a> {
     /// Returns `true` if another character needs to be sent, `false` if the display is up to date.
     pub fn incremental_update(&mut self, delay: &mut impl liquid_crystal::DelayNs) -> bool {
         if let Some((row,col)) = self.next_pos {
+            self.driver.set_cursor(delay, row, col as u8);
             let next_u8 = self.screen[row][col];
             self.driver.write(delay, liquid_crystal::Text(core::str::from_utf8(&[next_u8]).unwrap_or("#")));
             self.next_pos = match (row, col) {
@@ -39,6 +41,16 @@ impl<'a> IncrementalDisplayWriter<'a> {
                 },   
                 (_             , _             ) => Some((row, col+1)), // Next column
             };
+            // Finished drawing the screen. Put the cursor in the right position if needed
+            if self.next_pos.is_none() {
+                // Set up cursor if needed
+                if let Some((cursor_row, cursor_col)) = self.cursor_pos {
+                    self.driver.enable_cursor();
+                    self.driver.set_cursor(delay, cursor_row, cursor_col as u8);
+                }
+                else { self.driver.disable_cursor(); }
+                self.driver.update_config(delay);
+            }
         }
         self.next_pos.is_some()
     }
@@ -52,21 +64,10 @@ impl<'a> IncrementalDisplayWriter<'a> {
     /// Determine what the screen should look like based on system state, then update the internal display buffer.
     /// 
     /// Does not actually redraw the display. You must call `incremental_update()`
-    pub fn determine_new_screen(&mut self, delay: &mut impl liquid_crystal::DelayNs, config: &Config, sdcard_info: SdCardInfo, sensor_values: DisplayValues) {
+    pub fn determine_new_screen(&mut self, config: &Config, sdcard_info: SdCardInfo, sensor_values: DisplayValues) {
         let (screen, cursor_pos) = determine_screen(config, sdcard_info, sensor_values);
         self.update_display_buffer(screen);
-
-        // Set up cursor if needed
-        if let Some((cursor_row, cursor_col)) = cursor_pos {
-            self.driver.enable_cursor();
-            self.driver.enable_blink();
-            self.driver.set_cursor(delay, cursor_row, cursor_col as u8);
-        }
-        else {
-            self.driver.disable_cursor();
-            self.driver.disable_blink();
-        }
-        self.driver.update_config(delay);
+        self.cursor_pos = cursor_pos;
     }
 
     /// Loads all our custom characters into the display's memory

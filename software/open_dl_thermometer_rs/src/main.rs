@@ -173,7 +173,7 @@ fn main() -> ! {
             service_button_event(&mut config, &update_reason);
             state_machine::next_state(&mut config, &mut sd_manager, &update_reason);
             state_machine::state_outputs(&mut config);
-            display_manager.determine_new_screen(&mut system_timer, &config, sd_manager.get_card_info(), buffers.display);
+            display_manager.determine_new_screen(&config, sd_manager.get_card_info(), buffers.display);
             if config.status == Idle { sample_rate_timer.disable(); } else { sample_rate_timer.enable(); }
         }
 
