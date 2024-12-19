@@ -61,9 +61,12 @@ impl<PIO:PIOExt, SM: StateMachineIndex> AnyPioStateMachine for PioStateMachine<P
         self.state_machine = PioState::Running(state_machine);
     }
     fn pause(&mut self) {
-        if let PioState::Running(state_machine) = self.state_machine.take() {
-            self.state_machine = PioState::Stopped(state_machine.stop());
-        }
+        let state_machine = match self.state_machine.take() {
+            PioState::Stopped(sm) => sm,
+            PioState::Running(sm) => sm.stop(),
+            PioState::Taken => unreachable!(),
+        };
+        self.state_machine = PioState::Stopped(state_machine);
     }
     fn write(&mut self, val: u32) -> bool {
         self.tx.write(val)
