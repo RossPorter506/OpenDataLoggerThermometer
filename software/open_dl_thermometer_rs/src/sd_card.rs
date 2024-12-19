@@ -1,4 +1,5 @@
 use alloc::vec::Vec;
+
 use embedded_hal::{digital::{InputPin, OutputPin}, spi::{ErrorType, SpiBus, SpiDevice}};
 use embedded_sdmmc::*;
 use rp_pico::{hal::{clocks::PeripheralClock, rtc::RealTimeClock, spi::Enabled, Clock, Spi, Timer}, pac::SPI0};
@@ -14,6 +15,7 @@ struct VolumeInfo {
     root_dir: RawDirectory,
     volume: RawVolume,
     volume_id: usize,
+    free_space: Option<u64>,
 }
 
 pub struct SdManager {
@@ -52,11 +54,11 @@ impl SdManager {
         if let Some(volume_info) = self.volume_info {
             return Ok(volume_info)
         }
-        
+
         for i in 0..MBR_MAX_PARTITIONS {
             let Ok(volume) = self.vmgr.open_raw_volume(VolumeIdx(i)) else { continue };
             let root_dir = self.vmgr.open_root_dir(volume).unwrap(); // TODO
-            let volume_info = VolumeInfo{root_dir, volume, volume_id: i};
+            let volume_info = VolumeInfo{root_dir, volume, volume_id: i, free_space: None};
             self.volume_info = Some(volume_info);
             return Ok(volume_info)
         }
@@ -82,7 +84,13 @@ impl SdManager {
             eprintln!("No file open to write to."); return Err(embedded_sdmmc::Error::NotFound);
         };
         
-        self.vmgr.write(file, bytes)
+        self.vmgr.write(file, bytes)?;
+
+        // Update free space, if cached
+        if let Some(VolumeInfo{free_space: Some(ref mut space), ..}) = self.volume_info {
+            *space -= bytes.len() as u64;
+        }
+        Ok(())
     }
 
     /// Whether the SD card can be safely removed right now
@@ -93,10 +101,14 @@ impl SdManager {
     /// Get the number of bytes free on the SD card
     pub fn get_free_space_bytes(&mut self) -> Option<u64> {
         let volume_info = self.try_open_volume().ok()?;
+        if volume_info.free_space.is_some() {
+            return volume_info.free_space;
+        }
         let total_space = Self::get_volume_size(volume_info.volume_id, &mut self.vmgr);
         let used_space: u64 = Self::get_volume_used_space(volume_info.root_dir, &mut self.vmgr);
-
-        Some(total_space - used_space)
+        let free_space = total_space - used_space;
+        self.volume_info = Some(VolumeInfo {free_space: Some(free_space), ..volume_info });
+        Some(free_space)
     }
 
     fn get_volume_size(volume_id: usize, vmgr: &mut VolumeManager<embedded_sdmmc::SdCard<SDCardSPIDriver, Timer>, RtcWrapper>) -> u64 {
@@ -104,7 +116,7 @@ impl SdManager {
         let mut block = [Block::new()]; 
         vmgr.device().read(&mut block, BlockIdx(0), "Reading MBR").unwrap(); // TODO
         let mbr: [u8; 512] = block[0].contents;
-
+        
         /// Volume information begins at address 0x1BE in the MBR. 
         const PARTITION_DATA_OFFSET: usize = 0x1BE;
         /// The MBR data for each partition is 16 bytes.
@@ -142,7 +154,7 @@ impl SdManager {
                 files.push(dir_entry.clone());
             }
         }).unwrap(); // TODO
-
+        
         for file_info in files {
             total += file_info.size as u64;
         }
