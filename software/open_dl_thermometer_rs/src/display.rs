@@ -323,14 +323,16 @@ fn substitute_dynamic_elements(screen: &mut Screen, config: &Config, sdcard_info
             // Free space
             const MAX_FREE_SPACE_CHARS: usize = 5;
             match sdcard_info.free_space_bytes {
-                Some(free_bytes) => {let free_space_megabytes: usize = free_bytes as usize / 1_000_000;
+                Some(free_bytes) => {
+                    let free_space_megabytes: usize = (free_bytes / 1_000_000) as usize;
                 let free_space_str = int_to_vec_u8(free_space_megabytes);
                 if free_space_str.len() < MAX_FREE_SPACE_CHARS {
                     dynamic_strs.push(right_align(free_space_str, MAX_FREE_SPACE_CHARS));
                 }
                 else {
                     dynamic_strs.push(b">9999".into());
-                }},
+                    }
+                },
                 None => dynamic_strs.push(b" N/A ".into()),
             }
              
