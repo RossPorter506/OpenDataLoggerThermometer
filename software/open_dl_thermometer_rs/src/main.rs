@@ -211,7 +211,7 @@ fn monitor_sdcard_state(mut sd_manager: SdManager, config: &mut Config, update_a
 
     // Beginning to datalog
     if config.status == SamplingAndDatalogging && config.sd.selected_for_use && !sd_manager.ready_to_write() {
-        let filename = alloc::format!("{}.{}", String::from_utf8_lossy(&config.sd.filename), config.sd.filetype.as_str());
+        let filename = alloc::format!("{}.{}", String::from_utf8_lossy(&config.sd.filename).trim(), config.sd.filetype.as_str());
         sd_status = sd_manager.try_open_file(&filename); // TODO: Ensure this function makes ready_to_write() return true.
     }
     // Just stopped datalogging
