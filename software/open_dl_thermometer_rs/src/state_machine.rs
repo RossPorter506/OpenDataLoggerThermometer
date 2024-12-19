@@ -165,8 +165,7 @@ pub fn next_state(config: &mut crate::config::Config, sd_manager: &mut SdManager
     config.curr_state = match &config.curr_state {
         Mainmenu(Configure) => ConfigOutputs(d::default()),
         Mainmenu(View)      => ViewTemperatures(d::default()),
-        Mainmenu(Datalog)   => if !config.sd.selected_for_use || sd_manager.ready_to_write() {DatalogTemperatures(d::default())} 
-                                else {DatalogSDUnexpectedRemoval(d::default())},
+        Mainmenu(Datalog)   => DatalogTemperatures(d::default()),
 
         ConfigOutputs(ConOut::Next) => {
             if config.sd.selected_for_use { ConfigSDStatus(d::default()) } 
@@ -186,7 +185,7 @@ pub fn next_state(config: &mut crate::config::Config, sd_manager: &mut SdManager
 
         ViewTemperatures(_)                                 => Mainmenu(d::default()),
 
-        DatalogTemperatures(_)                              => Mainmenu(d::default()),
+        DatalogTemperatures(_)                              => DatalogConfirmStop(d::default()),
 
         DatalogConfirmStop(ConfirmStop)                     => DatalogSDWriting(d::default()),
         DatalogConfirmStop(CancelStop)                      => DatalogTemperatures(d::default()),

@@ -209,7 +209,8 @@ fn monitor_sdcard_state(mut sd_manager: SdManager, config: &mut Config, update_a
     // Just stopped datalogging
     else if config.status != SamplingAndDatalogging && config.sd.selected_for_use && !sd_manager.is_safe_to_remove() {
         // We don't need to write to the card if we're not datalogging, so make it safe to remove just in case the user removes it.
-        sd_status = sd_manager.prepare_for_removal(); // TODO: Ensure this function the ready_to_remove() return true.
+        sd_status = sd_manager.prepare_for_removal(); // TODO: Ensure this function the is_safe_to_remove() return true.
+        *update_available = Some(UpdateReason::SDSafeToRemove);
     }
 
     if let Err(e) = sd_status {
