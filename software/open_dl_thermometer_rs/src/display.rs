@@ -32,7 +32,7 @@ impl<'a> IncrementalDisplayWriter<'a> {
         if let Some((row,col)) = self.next_pos {
             self.driver.set_cursor(delay, row, col as u8);
             let next_u8 = self.screen[row][col];
-            self.driver.write(delay, liquid_crystal::Text(core::str::from_utf8(&[next_u8]).unwrap_or("#")));
+            self.driver.write(delay, Self::map_chr(core::str::from_utf8(&[next_u8]).unwrap_or("#")));
             self.next_pos = match (row, col) {
                 (SCREEN_MAX_ROW, SCREEN_MAX_COL) => None,               // Done
                 (_             , SCREEN_MAX_COL) => {                   // Next row
@@ -72,8 +72,21 @@ impl<'a> IncrementalDisplayWriter<'a> {
 
     /// Loads all our custom characters into the display's memory
     pub fn load_custom_chars(&mut self, delay: &mut impl liquid_crystal::DelayNs) {
-        for char in [TICK, CROSS] {
+        for char in [TICK, CROSS, ARROW] {
             self.driver.custom_char(delay, &char.bitmap, char.address);
+        }
+    }
+
+    /// Map a string into either Text or a CustomCharacter.
+    /// If the value of the first byte of the input string is 0 to 7 (ASCII NUL to BEL), the rest of the string is ignored and 
+    /// a custom char corresponding to the value of the first byte is sent. Otherwise the full string is returned.
+    fn map_chr(str: &str) -> liquid_crystal::SendType<'_> {
+        let chr = str.as_bytes()[0];
+        if chr < 8 { // We use the first eight non-printable ASCII characters as stand-ins for custom chars. 
+            liquid_crystal::CustomChar(chr)
+        }
+        else {
+            liquid_crystal::Text(str)
         }
     }
 }
@@ -182,7 +195,8 @@ const SD_WRITE_COMPLETE_SCREEN: Screen = [
 
 const MAX_DYNAMIC_ELEMENTS: usize = 8;
 
-
+/// The LCD2004 module supports up to 8 custom characters. `IncrementalDisplayWriter` will treat ASCII
+/// `0x0` to `0x7` as the equivalent CustomCharacter (shared with the LCD2004 character address). See `map_str()`.
 struct CustomCharacter {
     address: u8,
     bitmap: [u8; 8]
@@ -216,7 +230,21 @@ const CROSS: CustomCharacter = CustomCharacter{
     ]
 };
 
-/// Sets all placeholder selectables to ' ', except for the one current selected, ordered by standard reading order (top left to bottom right)
+const ARROW: CustomCharacter = CustomCharacter{
+    address:2,
+    bitmap: [
+        0b00000, // 
+        0b00100, //   #
+        0b00010, //    #
+        0b11111, // #####
+        0b00010, //    #
+        0b00100, //   #
+        0b00000, // 
+        0b00000, // 
+    ]
+};
+
+/// Sets all placeholder selectables to ' ', except for the one currently selected, ordered by standard reading order (top left to bottom right)
 fn substitute_selected_elements(screen: &mut Screen, selected_pos: Option<usize>) -> Option<(usize, usize)> {
     let mut cursor_pos = None;
     if let Some(selected_pos) = selected_pos {
@@ -227,7 +255,7 @@ fn substitute_selected_elements(screen: &mut Screen, selected_pos: Option<usize>
             .filter(|&(_, &mut col)| [SELECTABLE_PLACEHOLDER, DYNAMIC_AND_SELECTABLE_PLACEHOLDER].contains(&col) ) // filter out non-selectable elements
             .enumerate() { // enumerate selectable elements
             match (sel_pos, *col) {
-                (pos, SELECTABLE_PLACEHOLDER            ) if pos == selected_pos    => *col = b'>',
+                (pos, SELECTABLE_PLACEHOLDER            ) if pos == selected_pos    => *col = ARROW.address,
                 (_  , SELECTABLE_PLACEHOLDER            )                           => *col = b' ',
                 (pos, DYNAMIC_AND_SELECTABLE_PLACEHOLDER) if pos == selected_pos    => cursor_pos = Some((idx/SCREEN_COLS, idx%SCREEN_COLS)), // cursor on
                 (_  , DYNAMIC_AND_SELECTABLE_PLACEHOLDER)                           => (), // dealt with by the dynamic
