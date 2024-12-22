@@ -13,61 +13,58 @@ type I2CInterface = liquid_crystal::I2C<rp_pico::hal::I2C<rp_pico::pac::I2C0, (D
 /// Top-level component for managing the display. 
 pub struct IncrementalDisplayWriter<'a> {
     screen: Screen,
-    next_pos: Option<(usize, usize)>,
-    cursor_pos: Option<(usize, usize)>,
+    state: ScreenState,
     driver: liquid_crystal::LiquidCrystal<'a, I2CInterface, {SCREEN_COLS as u8}, SCREEN_ROWS>,
 }
 impl<'a> IncrementalDisplayWriter<'a> {
     pub fn new(config: &Config, sdcard_info: SdCardInfo, delay: &mut impl liquid_crystal::DelayNs, liquid_crystal_i2c_interface: &'a mut I2CInterface) -> Self {
         let mut driver = liquid_crystal::LiquidCrystal::new(liquid_crystal_i2c_interface, Bus4Bits, LCD20X4);
         driver.begin(delay);
-        Self {screen: determine_screen(config, sdcard_info, [None;NUM_SENSOR_CHANNELS]).0, next_pos: Some((0,0)), driver, cursor_pos: None}
+        Self {screen: determine_screen(config, sdcard_info, [None;NUM_SENSOR_CHANNELS]).0, driver, state: ScreenState::Drawing((0,0), Cursor::default())}
     }
     /// If the display isn't up to date then send one character to the display.
     /// 
     /// Done one character at a time to maximise responsiveness in a polling loop.
     /// 
-    /// Returns `true` if another character needs to be sent, `false` if the display is up to date.
-    pub fn incremental_update(&mut self, delay: &mut impl liquid_crystal::DelayNs) -> bool {
-        if let Some((row,col)) = self.next_pos {
-            self.driver.set_cursor(delay, row, col as u8);
-            let next_u8 = self.screen[row][col];
-            self.driver.write(delay, Self::map_chr(core::str::from_utf8(&[next_u8]).unwrap_or("#")));
-            self.next_pos = match (row, col) {
-                (SCREEN_MAX_ROW, SCREEN_MAX_COL) => None,               // Done
-                (_             , SCREEN_MAX_COL) => {                   // Next row
-                    self.driver.set_cursor(delay, row+1, 0); // Our display uses different row layouts in memory. If this is removed the rows are printed out in the wrong order.
-                    Some((row+1, 0))
-                },   
-                (_             , _             ) => Some((row, col+1)), // Next column
-            };
-            // Finished drawing the screen. Put the cursor in the right position if needed
-            if self.next_pos.is_none() {
-                // Set up cursor if needed
-                if let Some((cursor_row, cursor_col)) = self.cursor_pos {
-                    self.driver.enable_cursor();
-                    self.driver.set_cursor(delay, cursor_row, cursor_col as u8);
+    /// Returns the current screen state.
+    pub fn incremental_update(&mut self, delay: &mut impl liquid_crystal::DelayNs) -> ScreenState {
+        match self.state {
+            ScreenState::Drawing((row, col), _cursor) => {
+                // Draw the next character on the screen
+                self.driver.set_cursor(delay, row, col as u8);
+                let next_char: &[u8] = &[self.screen[row][col]];
+                self.driver.write(delay, Self::map_char(next_char));
+
+                self.state = match (row, col) {
+                    (SCREEN_MAX_ROW, SCREEN_MAX_COL) => ScreenState::PlacingCursor(_cursor),        // Done
+                    (_             , SCREEN_MAX_COL) => ScreenState::Drawing((row+1, 0), _cursor),  // Next row
+                    (_             , _             ) => ScreenState::Drawing((row, col+1), _cursor),// Next column
                 }
-                else { self.driver.disable_cursor(); }
+            },
+            ScreenState::PlacingCursor(cursor) => {
+                // Finished drawing the screen, place the cursor in the right position, if necessary
+                if let Some((row, col)) = cursor {
+                    self.driver.enable_cursor();
+                    self.driver.set_cursor(delay, row, col as u8);
+                }
+                else {
+                    self.driver.disable_cursor(); 
+                }
                 self.driver.update_config(delay);
-            }
-        }
-        self.next_pos.is_some()
+                self.state = ScreenState::Done
+            },
+            ScreenState::Done => (),
+        };
+        self.state
     }
 
-    /// Change what we want to be displayed on the screen, and marks the screen as needing updating. 
-    /// Does not actually update the display. You must call `incremental_update()`
-    fn update_display_buffer(&mut self, screen: Screen) {
-        self.screen = screen;
-        self.next_pos = Some((0,0));
-    }
     /// Determine what the screen should look like based on system state, then update the internal display buffer.
     /// 
     /// Does not actually redraw the display. You must call `incremental_update()`
     pub fn determine_new_screen(&mut self, config: &Config, sdcard_info: SdCardInfo, sensor_values: DisplayValues) {
         let (screen, cursor_pos) = determine_screen(config, sdcard_info, sensor_values);
-        self.update_display_buffer(screen);
-        self.cursor_pos = cursor_pos;
+        self.screen = screen;
+        self.state = ScreenState::Drawing((0,0), cursor_pos);
     }
 
     /// Loads all our custom characters into the display's memory
@@ -77,18 +74,29 @@ impl<'a> IncrementalDisplayWriter<'a> {
         }
     }
 
-    /// Map a string into either Text or a CustomCharacter.
-    /// If the value of the first byte of the input string is 0 to 7 (ASCII NUL to BEL), the rest of the string is ignored and 
-    /// a custom char corresponding to the value of the first byte is sent. Otherwise the full string is returned.
-    fn map_chr(str: &str) -> liquid_crystal::SendType<'_> {
-        let chr = str.as_bytes()[0];
+    /// Map a bytestring into either `liquid_crystal::Text` or `CustomCharacter`.
+    /// If the first byte of the input is 0 to 7 (ASCII NUL to BEL), the corresponding custom char is returned. 
+    /// Otherwise the character is just returned wrapped as `Text`.
+    // This *could* be used for strings, but we only use it for single characters. The input type is a bytestring for lifetime reasons.
+    fn map_char(str_bytes: &[u8]) -> liquid_crystal::SendType<'_> {
+        let chr = str_bytes[0];
         if chr < 8 { // We use the first eight non-printable ASCII characters as stand-ins for custom chars. 
             liquid_crystal::CustomChar(chr)
         }
         else {
-            liquid_crystal::Text(str)
+            liquid_crystal::Text(core::str::from_utf8(str_bytes).unwrap_or("#"))
         }
     }
+}
+
+// Wrapper for a cursor position. `None` if cursor is invisible, `Some((row,col))` otherwise.
+type Cursor = Option<(usize, usize)>;
+#[derive(PartialEq, Copy, Clone)]
+// The current state of the screen. Drawing occurs first, then the cursor is placed appropriately, then an idle state.
+pub enum ScreenState {
+    Drawing((usize, usize), Cursor),
+    PlacingCursor(Cursor),
+    Done,
 }
 
 const SCREEN_COLS: usize = 20;
@@ -196,7 +204,7 @@ const SD_WRITE_COMPLETE_SCREEN: Screen = [
 const MAX_DYNAMIC_ELEMENTS: usize = 8;
 
 /// The LCD2004 module supports up to 8 custom characters. `IncrementalDisplayWriter` will treat ASCII
-/// `0x0` to `0x7` as the equivalent CustomCharacter (shared with the LCD2004 character address). See `map_str()`.
+/// `0x0` to `0x7` as the equivalent CustomCharacter (shared with the LCD2004 character address). See `map_char()`.
 struct CustomCharacter {
     address: u8,
     bitmap: [u8; 8]
