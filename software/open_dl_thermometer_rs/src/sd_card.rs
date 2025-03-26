@@ -27,7 +27,7 @@ pub struct SdManager {
     card_previously_inserted: bool,
 }
 const MBR_MAX_PARTITIONS: usize = 4;
-type SpiBus0Enabled = Spi<Enabled,SPI0,(SdCardMosi, SdCardMiso, SdCardSck), {crate::BITS_PER_SPI_PACKET}>;
+type SpiBus0Enabled = Spi<Enabled,SPI0,(SdCardMosi, SdCardMiso, SdCardSck), {crate::board::BITS_PER_SPI_PACKET}>;
 impl SdManager {
     pub fn new(spi_bus: SpiBus0Enabled, cs: SdCardCs, delay: Timer, mut extra_pins: SdCardExtraPins, rtc: RealTimeClock) -> Self {
         let rtc_wrapper = RtcWrapper{rtc};
@@ -257,11 +257,15 @@ pub struct SdCardInfo {
     pub is_formatted: Option<bool>,
     pub free_space_bytes: Option<u64>,
 }
-
+impl SdCardInfo {
+    pub fn is_ready(&self) -> bool {
+        self.is_inserted && self.is_writable == Some(true) && self.is_formatted == Some(true)
+    }
+}
 
 /// Wrapper layer that implements embedded_hal SpiDevice for the rp2040-hal SPI bus (confusingly also called SpiDevice)
 struct SDCardSPIDriver {
-    spi_bus: Spi<Enabled, SPI0, (SdCardMosi, SdCardMiso, SdCardSck), { crate::BITS_PER_SPI_PACKET }>,
+    spi_bus: Spi<Enabled, SPI0, (SdCardMosi, SdCardMiso, SdCardSck), { crate::board::BITS_PER_SPI_PACKET }>,
     cs: SdCardCs,
 }
 impl ErrorType for SDCardSPIDriver{
