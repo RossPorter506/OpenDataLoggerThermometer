@@ -1,10 +1,12 @@
 use arrayvec::ArrayString;
 use rp_pico::{hal::pio::{InstalledProgram, PIOExt, UninitStateMachine}, pac};
+use rtt_target::{rprint, rprintln};
 
 use crate::{constants::*, pcb_mapping::{TempPowerPins, TempSensePins}, pio::{AllPioStateMachines, PioStateMachine}};
 
-/// Maximum time required for an LMT01 to convert and communicate one sensor reading
-pub const SENSOR_MAX_TIME_FOR_READING_MS: u32 = 104;
+/// Maximum time required for an LMT01 to convert and communicate one sensor reading.
+/// 104ms for the LMT01 reading itself, plus 1ms to let the PIO detect end of pulse train, plus 1ms for slack
+pub const SENSOR_MAX_TIME_FOR_READING_MS: u32 = 106;
 
 /// (Temperature in milli-celcius, pulse counts)
 const LMT01_LUT: [(i32, u32); LUT_SIZE] = [
@@ -52,13 +54,12 @@ impl TempSensors {
     }
     /// Try to read counts from all sensors. Powers off sensors and pauses PIOs afterwards.
     fn read_counts_and_end_conversion(&mut self) -> [Option<u32>; NUM_SENSOR_CHANNELS] {
-        self.pios.write_all(0);
-        // The pulse counter counts downwards from 0xFFFF_FFFF, so invert the bits to get the actual number of pulses
-        let vals = self.pios.read_all();
+        let counts = self.pios.read_all();
+
         self.pios.pause_all();
         self.power.turn_off();
         
-        vals.map(|opt| opt.map(|c| !c))
+        counts
     }
     
     /// Input: 26-3218 counts
@@ -80,7 +81,7 @@ impl TempSensors {
     pub fn autodetect_sensor_channels(&mut self, delay: &mut impl embedded_hal::delay::DelayNs) -> [bool; NUM_SENSOR_CHANNELS] {
         self.begin_conversion();
 
-        delay.delay_ms(SENSOR_MAX_TIME_FOR_READING_MS+1);
+        delay.delay_ms(SENSOR_MAX_TIME_FOR_READING_MS);
         let connected = self.read_counts_and_end_conversion().map(|opt| opt.is_some());
 
         self.pios.pause_all();
@@ -213,8 +214,8 @@ pub fn configure_pios_for_lmt01(pio0: pac::PIO0, pio1: pac::PIO1, resets: &mut p
 fn configure_sm_for_lmt01<PIO:rp_pico::hal::pio::PIOExt, SM: rp_pico::hal::pio::StateMachineIndex>(uninit_sm: UninitStateMachine<(PIO,SM)>, id_num: u8, prog: InstalledProgram<PIO>) -> crate::pio::PioStateMachine<PIO,SM> {
     let (mut state_machine, rx, tx) = rp_pico::hal::pio::PIOBuilder::from_installed_program(prog)
         .in_pin_base(id_num)
-        .autopull(true).pull_threshold(32)
-        .autopush(true).push_threshold(32)
+        .jmp_pin(id_num)
+        .in_shift_direction(rp_pico::hal::pio::ShiftDirection::Left)
         .build(uninit_sm);
     // The GPIO pin needs to be configured as an input
     state_machine.set_pindirs([(id_num, rp_pico::hal::pio::PinDir::Input)]);

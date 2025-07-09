@@ -91,7 +91,7 @@ impl Board {
         self.temp_sensors.begin_conversion();
         critical_section::with(|cs| {
             let Some(ref mut timer) = *crate::SENSORS_READY_TIMER.borrow_ref_mut(cs) else { unreachable!() };
-            timer.schedule((lmt01::SENSOR_MAX_TIME_FOR_READING_MS+1).millis()).unwrap_or_else(|_| unreachable!());
+            timer.schedule((lmt01::SENSOR_MAX_TIME_FOR_READING_MS).millis()).unwrap_or_else(|_| unreachable!());
         });
         crate::READY_TO_START_NEXT_READING.set(false);
     }
