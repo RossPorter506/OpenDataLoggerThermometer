@@ -65,7 +65,6 @@ impl TempSensors {
     ///
     /// Output: Temperature in millicelcius (e.g. -50_000mC -> 150_000mC)
     fn conv_count_to_temp_lut(&self, pulse_count: u32) -> i32 {
-        let pulse_count = pulse_count.clamp(26, 3218);
         self.lut.interpolate(pulse_count)
     }
 
@@ -156,6 +155,12 @@ impl LUTInterpolator {
         // Restrict input to within the extremes of the LUT
         let test_count = test_count.clamp(self.lut[0].count, self.lut[LUT_SIZE - 1].count);
 
+        if test_count <= self.lut[0].count {
+            return self.lut[0].value
+        }
+        else if test_count >= self.lut[LUT_SIZE - 1].count {
+            return self.lut[LUT_SIZE - 1].value
+        }
         // Find the two neighbouring points that are above and below the test value
         let mut below_index: usize = 0;
         for i in 0..LUT_SIZE {
@@ -207,7 +212,9 @@ pub fn configure_pios_for_lmt01(pio0: pac::PIO0, pio1: pac::PIO1, resets: &mut p
 
 fn configure_sm_for_lmt01<PIO:rp_pico::hal::pio::PIOExt, SM: rp_pico::hal::pio::StateMachineIndex>(uninit_sm: UninitStateMachine<(PIO,SM)>, id_num: u8, prog: InstalledProgram<PIO>) -> crate::pio::PioStateMachine<PIO,SM> {
     let (mut state_machine, rx, tx) = rp_pico::hal::pio::PIOBuilder::from_installed_program(prog)
-        .set_pins(id_num, 1)
+        .in_pin_base(id_num)
+        .autopull(true).pull_threshold(32)
+        .autopush(true).push_threshold(32)
         .build(uninit_sm);
     // The GPIO pin needs to be configured as an input
     state_machine.set_pindirs([(id_num, rp_pico::hal::pio::PinDir::Input)]);

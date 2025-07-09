@@ -205,7 +205,7 @@ static READY_TO_START_NEXT_READING: AtomicBool = AtomicBool::new(false);
 fn PWM_IRQ_WRAP() {
     static NUM_WRAPS: AtomicU8 = AtomicU8::new(1);
     
-    if NUM_WRAPS.get() == WRAPS_PER_SAMPLE.get() {
+    if NUM_WRAPS.get() >= WRAPS_PER_SAMPLE.get() {
         READY_TO_START_NEXT_READING.set(true);
         NUM_WRAPS.set(1);
     }
