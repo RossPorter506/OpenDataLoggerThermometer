@@ -1,0 +1,1 @@
+pub const NUM_SENSOR_CHANNELS: usize = 8;

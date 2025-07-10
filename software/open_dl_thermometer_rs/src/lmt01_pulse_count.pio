@@ -1,0 +1,45 @@
+.program lmt01_pulse_count
+
+; A synchronised pulse counter. Waits for an initial rising edge before doing anything. Increments pulse count after each pulse.
+; After 1ms with no pulses (assuming 125MHz clock) the pulse count is sent to the CPU.
+; Adapted from https://github.com/GitJer/Some_RPI-Pico_stuff/blob/main/count_pulses_with_pause/count_pulses_with_pause.pio
+
+; y: Pulse counter
+; x: Idle timer
+
+.wrap_target
+start:
+; Set Y to 0xFFFFFFFF. We count downwards since we can only decrement. We'll uninvert this later.
+mov y !null 
+
+; Wait for the first rising edge before doing anything
+wait 1 pin 0 
+
+reset_idle_timer:
+; At 125MHz ~1ms is about 62.5k cycles (or about 15 << 12). Set x to this value.
+set x 15
+mov isr x
+in null 12
+mov x isr
+
+idle:
+; If pin is high then we're seeing a pulse so go to `during_pulse`, else...
+jmp pin during_pulse
+; ...decrement the idle timer and try again
+jmp x-- idle
+
+; If idle timer is 0 then assume pulse train has ended, send un-inverted pulse count to CPU
+mov isr !y
+push
+; Prepare for next pulse train
+jmp start
+
+during_pulse:
+; Wait for low on the 0th pin as configured in PINCTRL_IN_BASE
+wait 0 pin 0 
+; Decrement pulse count, then unconditional jump to `after_pulse`
+jmp y-- after_pulse
+after_pulse:
+jmp reset_idle_timer
+
+.wrap

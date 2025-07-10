@@ -1,4 +1,4 @@
-# OpenDataLoggerThermometer
+# OpenDatalogger Thermometer
 This repository contains the hardware (schematics and PCB layout) and software for a low-cost data-logging thermometer
 
 Powered by the Raspberry Pi Pico and it's PIO peripheral, the board is capable of supporting up to 8 digital pulse train temperature sensors, such as the LMT01. The Pico's PIO peripheral can measure all 8 sensors simultaneously. The LMT01 is capable of outputting about 10 samples per second, and this board can achieve this theoretical maximum for all 8 sensors, for a total of 80 samples per second if all 8 channels are populated. The Pico is capable of much higher data rates if faster sensors are used.

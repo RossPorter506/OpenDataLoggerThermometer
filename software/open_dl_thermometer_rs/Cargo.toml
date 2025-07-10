@@ -1,0 +1,51 @@
+[package]
+name = "open_dl_thermometer_rs"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+cortex-m-rt = "0.7.3"
+panic-halt = "1.0.0"
+rp-pico = "0.9.0"
+embedded-hal = "1.0"
+embedded-sdmmc = "0.8.0"
+
+# PIO
+pio-proc = "0.2"
+pio = "0.2"
+
+# Macro function naming using identifier
+paste = "1.0"
+
+# FromPrimitive
+num-traits = {version = "0.2", default-features = false}
+num-derive = "0.4"
+
+# Interrupts
+atomic_enum = {version = "0.3", default-features = false}
+critical-section = "1.2"
+
+# Buffers
+arrayvec = {version = "0.7", default-features = false}
+to-arraystring = "0.2"
+
+# USB Serial printing
+usb-device = "0.3"
+usbd-serial = "0.2"
+
+# Heap
+embedded-alloc = "0.6"
+
+# Display
+liquid_crystal = "0.2"
+
+# Global printing
+static_cell = {version = "2.1"}
+portable-atomic = {version = "1.11", features = ["critical-section"]}
+
+# Serial Wire Debug / RTT printing
+rtt-target = "0.6"
+
+#Convenience function for unwrapping infallible results
+unwrap-infallible = "0.1"
+nb = "1.1.0"
