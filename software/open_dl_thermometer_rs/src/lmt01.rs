@@ -1,6 +1,5 @@
 use arrayvec::ArrayString;
 use rp_pico::{hal::pio::{InstalledProgram, PIOExt, UninitStateMachine}, pac};
-use rtt_target::{rprint, rprintln};
 
 use crate::{constants::*, pcb_mapping::{TempPowerPins, TempSensePins}, pio::{AllPioStateMachines, PioStateMachine}};
 
@@ -82,12 +81,8 @@ impl TempSensors {
         self.begin_conversion();
 
         delay.delay_ms(SENSOR_MAX_TIME_FOR_READING_MS);
-        let connected = self.read_counts_and_end_conversion().map(|opt| opt.is_some());
-
-        self.pios.pause_all();
-        self.power.turn_off();
-
-        connected
+        
+        self.read_counts_and_end_conversion().map(|opt| opt.is_some())
     }
 }
 

@@ -128,7 +128,7 @@ create_selectables!(DatalogSDSafeToRemoveSelectables, [Next,]);
 create_selectables!(DatalogSDErrorSelectables, [ContinueWithoutSD, StopDatalogging]);
 
 /// Information about why we are updaing
-#[derive(Clone)]
+#[derive(Debug, Clone)]
 pub enum UpdateReason {
     NextButton,
     SelectButton,
