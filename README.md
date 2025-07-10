@@ -30,3 +30,10 @@ A desktop program to capture the (optional) serial output of the device can be f
 The board will remain powered on while a USB cable is plugged in (either the USB-C power header, or the Pico's micro USB connector).
 
 - The opamps listed in the schematic (`TLV9004IPWR`) are too slow to catch the pulses. They can be replaced with `TSV994AIPT`'s, which are pin-compatible.
+
+### Todo list
+
+- Update schematic with TSV994AIPT.
+- Figure out issue with power switch MOSFET.
+- Generate schematic and gerber files.
+- Add docs for recommended configuration for optional components (hysteresis, I2C pullups, etc.)
