@@ -114,6 +114,7 @@ impl Config {
 
         // Select button transitions
         let sd_conf_complete = !self.sd.selected_for_use || sd_ready;
+        let valid_sd_filename = self.sd.filename != [b' '; FILENAME_MAX_LEN];
         self.curr_state = match self.curr_state {
             Mainmenu(Configure) => ConfigOutputs(d::default()),
             Mainmenu(View)      => ViewTemperatures(d::default()),
@@ -125,7 +126,8 @@ impl Config {
             ConfigSDStatus(ConSdStatSel::Next) if sd_conf_complete          => ConfigSDFilename(d::default()),
             ConfigSDStatus(ConSdStatSel::Next) if !sd_conf_complete         => ConfigSDStatus(d::default()),
 
-            ConfigSDFilename(ConSDName::Next)                               => ConfigChannelSelect(d::default()),
+            ConfigSDFilename(ConSDName::Next) if valid_sd_filename          => ConfigChannelSelect(d::default()),
+            ConfigSDFilename(ConSDName::Next) if !valid_sd_filename         => ConfigSDFilename(d::default()),
 
             ConfigChannelSelect(ConChanSel::Next)                           => ConfigSampleRate(d::default()),
 

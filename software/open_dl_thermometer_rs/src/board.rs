@@ -1,7 +1,7 @@
 // Does top-level configuration of board-specific parameters
 
 use crate::{
-    config::Config, 
+    config::{Config, Status}, 
     display::IncrementalDisplayWriter, eprintln, lmt01::{self, TempSensors}, 
     pcb_mapping::{self, ButtonPins, DisplayPins, DisplayScl, DisplaySda, SdCardExtraPins, SdCardMiso, SdCardMosi, SdCardPins, SdCardSPIPins, SdCardSck, TempPowerPins, TempSensePins}, 
     println, 
@@ -71,16 +71,18 @@ impl Board {
         // TODO: Technically this timestamp value should probably be from when the conversion *started*, not when it ended, but only 0.1sec difference
         let serialised_snapshot = serial::serialise_snapshot(self.system_timer.get_counter(), &buffers.display);
 
-        if config.sd.selected_for_use {
-            if buffers.spi.try_push_str(&serialised_snapshot).is_err() {
-                eprintln!("SPI buffer overfull! Dropping data: {}", serialised_snapshot.as_str());
-                self.write_to_sd = true;
+        if config.status == Status::SamplingAndDatalogging {
+            if config.sd.selected_for_use {
+                if buffers.spi.try_push_str(&serialised_snapshot).is_err() {
+                    eprintln!("SPI buffer overfull! Dropping data: {}", serialised_snapshot.as_str());
+                    self.write_to_sd = true;
+                }
+                if buffers.spi.is_full() { self.write_to_sd = true; }
             }
-            if buffers.spi.is_full() { self.write_to_sd = true; }
-        }
-
-        if config.serial.selected_for_use {
-            buffers.serial = serialised_snapshot;
+    
+            if config.serial.selected_for_use {
+                buffers.serial = serialised_snapshot;
+            }
         }
 
         crate::SENSOR_READINGS_AVAILABLE.set(false);
