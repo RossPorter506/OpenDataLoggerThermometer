@@ -41,10 +41,11 @@ liquid_crystal = "0.2"
 
 # Global printing
 static_cell = {version = "2.1"}
-portable-atomic = {version = "*", features = ["critical-section"]}
+portable-atomic = {version = "1.11", features = ["critical-section"]}
 
 # Serial Wire Debug / RTT printing
 rtt-target = "0.6"
 
 #Convenience function for unwrapping infallible results
 unwrap-infallible = "0.1"
+nb = "1.1.0"

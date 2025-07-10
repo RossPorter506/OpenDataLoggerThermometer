@@ -3,8 +3,9 @@ use rp_pico::{hal::pio::{InstalledProgram, PIOExt, UninitStateMachine}, pac};
 
 use crate::{constants::*, pcb_mapping::{TempPowerPins, TempSensePins}, pio::{AllPioStateMachines, PioStateMachine}};
 
-/// Maximum time required for an LMT01 to convert and communicate one sensor reading
-pub const SENSOR_MAX_TIME_FOR_READING_MS: u32 = 104;
+/// Maximum time required for an LMT01 to convert and communicate one sensor reading.
+/// 104ms for the LMT01 reading itself, plus 1ms to let the PIO detect end of pulse train, plus 1ms for slack
+pub const SENSOR_MAX_TIME_FOR_READING_MS: u32 = 106;
 
 /// (Temperature in milli-celcius, pulse counts)
 const LMT01_LUT: [(i32, u32); LUT_SIZE] = [
@@ -52,20 +53,18 @@ impl TempSensors {
     }
     /// Try to read counts from all sensors. Powers off sensors and pauses PIOs afterwards.
     fn read_counts_and_end_conversion(&mut self) -> [Option<u32>; NUM_SENSOR_CHANNELS] {
-        self.pios.write_all(0);
-        // The pulse counter counts downwards from 0xFFFF_FFFF, so invert the bits to get the actual number of pulses
-        let vals = self.pios.read_all();
+        let counts = self.pios.read_all();
+
         self.pios.pause_all();
         self.power.turn_off();
         
-        vals.map(|opt| opt.map(|c| !c))
+        counts
     }
     
     /// Input: 26-3218 counts
     ///
     /// Output: Temperature in millicelcius (e.g. -50_000mC -> 150_000mC)
     fn conv_count_to_temp_lut(&self, pulse_count: u32) -> i32 {
-        let pulse_count = pulse_count.clamp(26, 3218);
         self.lut.interpolate(pulse_count)
     }
 
@@ -81,13 +80,9 @@ impl TempSensors {
     pub fn autodetect_sensor_channels(&mut self, delay: &mut impl embedded_hal::delay::DelayNs) -> [bool; NUM_SENSOR_CHANNELS] {
         self.begin_conversion();
 
-        delay.delay_ms(SENSOR_MAX_TIME_FOR_READING_MS+1);
-        let connected = self.read_counts_and_end_conversion().map(|opt| opt.is_some());
-
-        self.pios.pause_all();
-        self.power.turn_off();
-
-        connected
+        delay.delay_ms(SENSOR_MAX_TIME_FOR_READING_MS);
+        
+        self.read_counts_and_end_conversion().map(|opt| opt.is_some())
     }
 }
 
@@ -156,6 +151,12 @@ impl LUTInterpolator {
         // Restrict input to within the extremes of the LUT
         let test_count = test_count.clamp(self.lut[0].count, self.lut[LUT_SIZE - 1].count);
 
+        if test_count <= self.lut[0].count {
+            return self.lut[0].value
+        }
+        else if test_count >= self.lut[LUT_SIZE - 1].count {
+            return self.lut[LUT_SIZE - 1].value
+        }
         // Find the two neighbouring points that are above and below the test value
         let mut below_index: usize = 0;
         for i in 0..LUT_SIZE {
@@ -207,7 +208,9 @@ pub fn configure_pios_for_lmt01(pio0: pac::PIO0, pio1: pac::PIO1, resets: &mut p
 
 fn configure_sm_for_lmt01<PIO:rp_pico::hal::pio::PIOExt, SM: rp_pico::hal::pio::StateMachineIndex>(uninit_sm: UninitStateMachine<(PIO,SM)>, id_num: u8, prog: InstalledProgram<PIO>) -> crate::pio::PioStateMachine<PIO,SM> {
     let (mut state_machine, rx, tx) = rp_pico::hal::pio::PIOBuilder::from_installed_program(prog)
-        .set_pins(id_num, 1)
+        .in_pin_base(id_num)
+        .jmp_pin(id_num)
+        .in_shift_direction(rp_pico::hal::pio::ShiftDirection::Left)
         .build(uninit_sm);
     // The GPIO pin needs to be configured as an input
     state_machine.set_pindirs([(id_num, rp_pico::hal::pio::PinDir::Input)]);

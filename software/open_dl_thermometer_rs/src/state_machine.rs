@@ -1,5 +1,3 @@
-#![allow(dead_code)]
-
 /// Encode both the state and what things on the screen can be selected into one item
 /// This ensures that there can't be any mismatches between states and selected items
 #[derive(Copy, Clone, PartialEq, Debug)]
@@ -129,105 +127,8 @@ create_selectables!(DatalogSDWritingSelectables, []);
 create_selectables!(DatalogSDSafeToRemoveSelectables, [Next,]);
 create_selectables!(DatalogSDErrorSelectables, [ContinueWithoutSD, StopDatalogging]);
 
-// Shorthand
-use core::default::Default as d;
-use ConfigChannelSelectSelectables as ConChanSel;
-use ConfigOutputsSelectables as ConOut;
-use ConfigSDFilenameSelectables as ConSDName;
-use ConfigSDStatusSelectables as ConSDStat;
-use ConfigSampleRateSelectables as ConSampRate;
-use DatalogConfirmStopSelectables::*;
-use DatalogErrorSDFullSelectables as SDFullSel;
-use DatalogErrorSDUnexpectedRemovalSelectables::*;
-use DatalogSDSafeToRemoveSelectables as DlSDSafe;
-use DatalogSDErrorSelectables as DlSDErrSel;
-use MainmenuSelectables::*;
-
-use crate::{config::Status::SamplingAndDatalogging, sd_card::SdManager};
-/// Determine the next state based on the current state and config
-pub fn next_state(config: &mut crate::config::Config, sd_manager: &mut SdManager, update_reason: &UpdateReason) {
-    // Special transitions
-    if *update_reason != SelectButton {
-        config.curr_state = match update_reason {
-            SDSafeToRemove => DatalogSDSafeToRemove(d::default()),
-            SDFull => DatalogErrorSDFull(d::default()),
-            SDRemovedUnexpectedly => 
-                if config.status == SamplingAndDatalogging && config.sd.selected_for_use {DatalogSDUnexpectedRemoval(d::default())}
-                else {config.curr_state},
-            NextButton => config.curr_state.next_selectable(),
-            SDError(_) => DatalogSDError(d::default()),
-            _ => config.curr_state,
-        };
-        return;
-    }
-
-    // Select button transitions
-    config.curr_state = match &config.curr_state {
-        Mainmenu(Configure) => ConfigOutputs(d::default()),
-        Mainmenu(View)      => ViewTemperatures(d::default()),
-        Mainmenu(Datalog)   => DatalogTemperatures(d::default()),
-
-        ConfigOutputs(ConOut::Next) => {
-            if config.sd.selected_for_use { ConfigSDStatus(d::default()) } 
-            else { ConfigChannelSelect(d::default()) }
-        }
-
-        ConfigSDStatus(ConSDStat::Next)         => {
-            let sd_configuration_complete = !config.sd.selected_for_use || ( sd_manager.is_card_inserted() && sd_manager.is_card_writable() && sd_manager.is_card_formatted() );
-            if sd_configuration_complete { ConfigSDFilename(d::default()) } 
-            else { ConfigSDStatus(d::default()) }},
-
-        ConfigSDFilename(ConSDName::Next)                   => ConfigChannelSelect(d::default()),
-
-        ConfigChannelSelect(ConChanSel::Next)               => ConfigSampleRate(d::default()),
-
-        ConfigSampleRate(ConSampRate::Next)                 => Mainmenu(d::default()),
-
-        ViewTemperatures(_)                                 => Mainmenu(d::default()),
-
-        DatalogTemperatures(_)                              => DatalogConfirmStop(d::default()),
-
-        DatalogConfirmStop(ConfirmStop)                     => DatalogSDWriting(d::default()),
-        DatalogConfirmStop(CancelStop)                      => DatalogTemperatures(d::default()),
-
-        DatalogErrorSDFull(SDFullSel::ContinueWithoutSD)    => DatalogTemperatures(d::default()),
-        DatalogErrorSDFull(SDFullSel::StopDatalogging)      => DatalogSDWriting(d::default()),
-
-        DatalogSDSafeToRemove(DlSDSafe::Next)               => Mainmenu(d::default()),
-        
-        DatalogSDUnexpectedRemoval(ContinueWithoutSD)       => DatalogTemperatures(d::default()),
-        DatalogSDUnexpectedRemoval(StopDatalogging)         => Mainmenu(d::default()),
-
-        DatalogSDError(DlSDErrSel::ContinueWithoutSD)       => DatalogTemperatures(d::default()),
-        DatalogSDError(DlSDErrSel::StopDatalogging)         => Mainmenu(d::default()),
-
-        _ => config.curr_state,
-    }
-}
-
-/// Compute Moore-type state outputs that depend only on the current state
-pub fn state_outputs(config: &mut crate::config::Config) {
-    use crate::config::Status::*;
-    config.status = match config.curr_state {
-        Mainmenu(_)                     => Idle,
-        ConfigOutputs(_)                => Idle,
-        ConfigSDStatus(_)               => Idle,
-        ConfigSDFilename(_)             => Idle,
-        ConfigChannelSelect(_)          => Idle,
-        ConfigSampleRate(_)             => Idle,
-        ViewTemperatures(_)             => Sampling,
-        DatalogTemperatures(_)          => SamplingAndDatalogging,
-        DatalogConfirmStop(_)           => SamplingAndDatalogging,
-        DatalogErrorSDFull(_)           => SamplingAndDatalogging,
-        DatalogSDUnexpectedRemoval(_)   => SamplingAndDatalogging,
-        DatalogSDError(_)               => SamplingAndDatalogging,
-        DatalogSDWriting(_)             => Idle,
-        DatalogSDSafeToRemove(_)        => Idle,
-    }
-}
-
 /// Information about why we are updaing
-#[derive(Clone)]
+#[derive(Debug, Clone)]
 pub enum UpdateReason {
     NextButton,
     SelectButton,
