@@ -174,7 +174,7 @@ impl SdManager {
         // then reconfigure SPI back to 25MHz
         self.vmgr.device().spi(|driver| {
             driver.spi_bus.set_baudrate(peripheral_clock.freq(), SDCARD_INITIAL_FREQ_KHZ.kHz());
-            driver.spi_bus.write(&[0;10]).unwrap_infallible(); 
+            driver.spi_bus.write(&[0;10]); 
             driver.spi_bus.set_baudrate(peripheral_clock.freq(), SDCARD_FULL_SPEED_FREQ_KHZ.kHz())
         });
         // Tell SD card to initialise next time it's used
@@ -273,7 +273,7 @@ impl ErrorType for SDCardSPIDriver{
 }
 impl SpiDevice for SDCardSPIDriver {
     fn transaction(&mut self, operations: &mut [embedded_hal::spi::Operation<'_, u8>]) -> Result<(), Self::Error> {
-        self.cs.set_low().unwrap_infallible();
+        self.cs.set_low();
         use embedded_hal::spi::Operation::*;
         for op in operations {
             match op {
@@ -282,10 +282,10 @@ impl SpiDevice for SDCardSPIDriver {
                 Transfer(rd_buf, wr_buf) => self.spi_bus.transfer(rd_buf, wr_buf),
                 TransferInPlace(buf) =>     self.spi_bus.transfer_in_place(buf),
                 DelayNs(_) =>               return Err(embedded_hal::spi::ErrorKind::Other), // embedded_sdmmc uses a separate delay object
-            }.unwrap_infallible();
+            };
         }
-        self.spi_bus.flush().unwrap_infallible();
-        self.cs.set_high().unwrap_infallible();
+        self.spi_bus.flush();
+        self.cs.set_high();
         Ok(())
     }
 }
